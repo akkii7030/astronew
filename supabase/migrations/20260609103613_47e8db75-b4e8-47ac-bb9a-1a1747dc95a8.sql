@@ -1,0 +1,1 @@
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS time_of_birth time, ADD COLUMN IF NOT EXISTS birth_location text;
