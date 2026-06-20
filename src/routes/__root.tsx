@@ -11,7 +11,6 @@ import {
 import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
-import { reportLovableError } from "../lib/lovable-error-reporting";
 import { registerPWA } from "../lib/pwa-register";
 import { IncomingCallModal } from "@/components/IncomingCallModal";
 import { ensureFirebaseUser } from "@/integrations/firebase/client";
@@ -41,9 +40,6 @@ function NotFoundComponent() {
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
   const router = useRouter();
-  useEffect(() => {
-    reportLovableError(error, { boundary: "tanstack_root_error_component" });
-  }, [error]);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -101,7 +97,6 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:description", content: "Premium astrology consultations — chat and call with verified astrologers." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
-      { name: "twitter:site", content: "@Lovable" },
       { name: "twitter:title", content: "Om Astro" },
       { name: "twitter:description", content: "Premium astrology consultations — chat and call with verified astrologers." },
       { property: "og:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/GJLzylxp06ZvaYfNnvCO8fOw9rs1/social-images/social-1780638264628-WhatsApp_Image_2026-06-05_at_10.51.50_AM.webp" },
@@ -143,7 +138,7 @@ function RootComponent() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Guarded registration: skips dev, Lovable preview, iframes, ?sw=off.
+    // Guarded registration: skips dev, iframes, ?sw=off.
     registerPWA();
   }, []);
 

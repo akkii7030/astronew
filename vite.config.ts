@@ -51,6 +51,7 @@ export default defineConfig({
       injectRegister: null,
       filename: "sw.js",
       manifest: false,
+      disable: false,
       includeAssets: [
         "favicon.ico",
         "offline.html",

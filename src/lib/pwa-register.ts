@@ -1,9 +1,9 @@
 /**
  * Guarded service-worker registration wrapper.
  *
- * Per the Lovable PWA skill, the app SW must NEVER register in:
+ * The app SW must NEVER register in:
  *  - dev builds
- *  - the Lovable preview iframe / preview hosts
+ *  - iframe contexts
  *  - URLs containing ?sw=off (kill switch)
  *
  * In any of those contexts we also unregister an existing /sw.js so previously
@@ -21,18 +21,6 @@ function shouldSkipRegistration(): boolean {
     return true; // cross-origin iframe
   }
   const host = window.location.hostname;
-  if (
-    host.startsWith("id-preview--") ||
-    host.startsWith("preview--") ||
-    host === "lovableproject.com" ||
-    host.endsWith(".lovableproject.com") ||
-    host === "lovableproject-dev.com" ||
-    host.endsWith(".lovableproject-dev.com") ||
-    host === "beta.lovable.dev" ||
-    host.endsWith(".beta.lovable.dev")
-  ) {
-    return true;
-  }
   if (new URLSearchParams(window.location.search).has("sw") &&
       new URLSearchParams(window.location.search).get("sw") === "off") {
     return true;
