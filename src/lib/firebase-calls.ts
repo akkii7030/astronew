@@ -126,6 +126,61 @@ export function listenCallHistory(
   });
 }
 
+/** Listen for all calls involving the given uid (as caller or callee). */
+export function listenAllCalls(
+  uid: string,
+  cb: (calls: CallDoc[]) => void,
+): Unsubscribe {
+  // Since Firestore doesn't support OR queries across multiple fields efficiently,
+  // we'll listen to both caller and callee queries and merge the results
+  const q1 = query(
+    collection(getDb(), "calls"),
+    where("callerUid", "==", uid),
+    orderBy("createdAt", "desc"),
+    limit(50),
+  );
+  const q2 = query(
+    collection(getDb(), "calls"),
+    where("calleeUid", "==", uid),
+    orderBy("createdAt", "desc"),
+    limit(50),
+  );
+  
+  let calls1: CallDoc[] = [];
+  let calls2: CallDoc[] = [];
+  let merged = new Map<string, CallDoc>();
+  
+  const updateMerged = () => {
+    merged.clear();
+    // Add calls where uid is caller
+    calls1.forEach(c => merged.set(c.id, c));
+    // Add calls where uid is callee (will update if already exists from caller query)
+    calls2.forEach(c => merged.set(c.id, c));
+    // Convert to array and sort by createdAt desc
+    const sorted = Array.from(merged.values()).sort((a, b) => {
+      const ta = a.createdAt?.toMillis?.() ?? 0;
+      const tb = b.createdAt?.toMillis?.() ?? 0;
+      return tb - ta;
+    });
+    cb(sorted.slice(0, 50)); // Limit to 50 most recent
+  };
+  
+  const unsub1 = onSnapshot(q1, (snap) => {
+    calls1 = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<CallDoc, "id">) }));
+    updateMerged();
+  });
+  
+  const unsub2 = onSnapshot(q2, (snap) => {
+    calls2 = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<CallDoc, "id">) }));
+    updateMerged();
+  });
+  
+  return () => {
+    unsub1();
+    unsub2();
+  };
+}
+
 /** Listen for received calls (where uid was the callee). */
 export function listenReceivedCalls(
   uid: string,

@@ -7,7 +7,7 @@ import { signOut } from "firebase/auth";
 import { Radio, LogOut, MessageCircle, Phone, Video, Clock } from "lucide-react";
 import { getFirebaseAuth, getDb } from "@/integrations/firebase/client";
 import { setPresence, listenRooms, type ChatRoom } from "@/lib/firebase-chat";
-import { listenReceivedCalls, type CallDoc, type CallMode } from "@/lib/firebase-calls";
+import { listenAllCalls, type CallDoc, type CallMode } from "@/lib/firebase-calls";
 
 export const Route = createFileRoute("/astrologer")({
   ssr: false,
@@ -59,8 +59,8 @@ function AstrologerHome() {
 
   useEffect(() => {
     if (!uid) return;
-    console.log("[AstrologerHome] Listening for received calls for UID:", uid);
-    const unsub = listenReceivedCalls(uid, setCalls);
+    console.log("[AstrologerHome] Listening for all calls for UID:", uid);
+    const unsub = listenAllCalls(uid, setCalls);
     return () => unsub();
   }, [uid]);
 
