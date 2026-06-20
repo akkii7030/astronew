@@ -111,6 +111,7 @@ export default defineConfig({
   // Prevent Vite from touching server-only packages during dev pre-bundling
   optimizeDeps: {
     exclude: SERVER_ONLY_PACKAGES,
+    include: ["firebase/app", "firebase/auth", "firebase/firestore"],
   },
   // Externalize from the SSR build
   ssr: {
@@ -130,7 +131,7 @@ export default defineConfig({
         // Split heavy deps into separate chunks to reduce per-chunk memory during build
         manualChunks: {
           "vendor-react": ["react", "react-dom"],
-          "vendor-firebase": ["firebase"],
+          "vendor-firebase": ["firebase/app", "firebase/auth", "firebase/firestore"],
           "vendor-zego": ["@zegocloud/zego-uikit-prebuilt"],
           "vendor-tanstack": [
             "@tanstack/react-router",
