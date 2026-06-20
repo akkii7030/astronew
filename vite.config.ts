@@ -32,15 +32,16 @@ const SERVER_ONLY_PACKAGES = [
 ];
 
 export default defineConfig({
+  // Force-enable Nitro with the node-server preset so it produces a real
+  // standalone HTTP server at .output/server/index.mjs (required for Render).
+  // Without this the @lovable.dev config skips the Nitro build entirely.
+  nitro: { preset: "node-server" },
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     // nitro/vite builds from this
     server: { entry: "server" },
     serverFns: {
       disableCsrfMiddlewareWarning: true,
-    },
-    nitro: {
-      preset: "node-server",
     },
   },
   vite: {
