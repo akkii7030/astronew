@@ -40,6 +40,9 @@ export default defineConfig({
       // Use node-server preset so Nitro produces .output/server/index.mjs
       nitro: {
         preset: "node-server",
+        output: {
+          dir: ".output",
+        },
       },
     }),
     react(),

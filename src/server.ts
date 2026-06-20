@@ -11,8 +11,16 @@ let serverEntryPromise: Promise<ServerEntry> | undefined;
 
 async function getServerEntry(): Promise<ServerEntry> {
   if (!serverEntryPromise) {
+    console.log("[Server] Loading server entry...");
     serverEntryPromise = import("@tanstack/react-start/server-entry").then(
-      (m) => (m.default ?? m) as ServerEntry,
+      (m) => {
+        console.log("[Server] Server entry loaded successfully");
+        return (m.default ?? m) as ServerEntry;
+      },
+      (error) => {
+        console.error("[Server] Failed to load server entry:", error);
+        throw error;
+      },
     );
   }
   return serverEntryPromise;
