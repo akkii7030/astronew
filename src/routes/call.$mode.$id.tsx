@@ -147,12 +147,11 @@ function CallPage() {
           maxUsers: 2,
           layout: "Auto",
           onJoinRoom: () => {
-            // Wait for the OTHER participant to join before flipping to "connected".
-            // Zego doesn't always fire user events for self, so flip optimistically.
+            setStatus("connected");
+            if (callId) setCallStatus(callId, "accepted").catch(() => undefined);
           },
           onUserJoin: () => {
             setStatus("connected");
-            if (callId) setCallStatus(callId, "accepted").catch(() => undefined);
           },
           onUserLeave: () => {
             endCall();
@@ -194,18 +193,16 @@ function CallPage() {
     if (callId && !silent) setCallStatus(callId, "ended").catch(() => undefined);
 
     // Give Zego UI Kit time to asynchronously teardown before unmounting the page
-    setTimeout(() => {
-      setStatus("ended");
-      const isAstrologerSide = !!(callDoc && myUid && callDoc.astrologerId === myUid);
-      if (isAstrologerSide) {
-        navigate({ to: "/astrologer" });
-      } else {
-        navigate({
-          to: "/astrologers/$id",
-          params: { id: callDoc?.astrologerId ?? id },
-        });
-      }
-    }, 400);
+    setStatus("ended");
+    const isAstrologerSide = !!(callDoc && myUid && callDoc.astrologerId === myUid);
+    if (isAstrologerSide) {
+      navigate({ to: "/astrologer" });
+    } else {
+      navigate({
+        to: "/astrologers/$id",
+        params: { id: callDoc?.astrologerId ?? id },
+      });
+    }
   };
 
   const toggleMic = () => {
@@ -216,17 +213,46 @@ function CallPage() {
   const toggleSpeaker = () => {
     const next = !speakerOff;
     setSpeakerOff(next);
-    try { zpRef.current?.setAudioOutputDevice?.(next ? "off" : "default"); } catch { /* noop */ }
+    try { 
+      if (next) {
+        // Mute speaker by setting volume to 0
+        zpRef.current?.setAudioOutputDevice?.("speaker");
+        // Try to mute the audio element directly
+        const audioElements = document.querySelectorAll('audio');
+        audioElements.forEach(el => (el as HTMLAudioElement).muted = true);
+      } else {
+        zpRef.current?.setAudioOutputDevice?.("speaker");
+        const audioElements = document.querySelectorAll('audio');
+        audioElements.forEach(el => (el as HTMLAudioElement).muted = false);
+      }
+    } catch { /* noop */ }
   };
   const toggleCamera = () => {
     const next = !cameraOff;
     setCameraOff(next);
-    try { zpRef.current?.turnCameraOn?.(!next); } catch { /* noop */ }
+    try { 
+      zpRef.current?.turnCameraOn?.(!next); 
+      // Force update the camera state
+      if (!next) {
+        // Camera on - ensure it's actually on
+        zpRef.current?.turnCameraOn?.(true);
+      } else {
+        // Camera off - ensure it's actually off
+        zpRef.current?.turnCameraOn?.(false);
+      }
+    } catch { /* noop */ }
   };
   const switchCamera = () => {
     const next = !frontCamera;
     setFrontCamera(next);
-    try { zpRef.current?.useFrontFacingCamera?.(next); } catch { /* noop */ }
+    try { 
+      // Use the correct Zego SDK method for switching camera
+      zpRef.current?.useFrontFacingCamera?.(!next);
+      // Also try alternative method if available
+      if (zpRef.current?.switchCamera) {
+        zpRef.current.switchCamera();
+      }
+    } catch { /* noop */ }
   };
 
   // Pick "the other party" based on who I am in the call doc.
@@ -367,24 +393,26 @@ function CallPage() {
 
       {status === "connected" && (
         <>
-          {/* Top Info Bar (Overlaid) */}
-          <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-between bg-gradient-to-b from-black/60 to-transparent p-6 pt-12">
-            <div className="flex items-center gap-3">
-              <img src={avatar} alt="" className="h-10 w-10 rounded-full border border-white/20 object-cover" />
-              <div>
-                <p className="font-display font-semibold text-white drop-shadow-md">{peerName}</p>
-                <p className="text-[11px] font-medium tracking-wider text-white/80 drop-shadow-md">
-                  {formatTime(seconds)}
-                </p>
+          {/* Top Info Bar (Overlaid) - Only for video mode */}
+          {isVideo && (
+            <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-between bg-gradient-to-b from-black/60 to-transparent p-6 pt-12">
+              <div className="flex items-center gap-3">
+                <img src={avatar} alt="" className="h-10 w-10 rounded-full border border-white/20 object-cover" />
+                <div>
+                  <p className="font-display font-semibold text-white drop-shadow-md">{peerName}</p>
+                  <p className="text-[11px] font-medium tracking-wider text-white/80 drop-shadow-md">
+                    {formatTime(seconds)}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 rounded-full bg-black/40 px-3 py-1.5 backdrop-blur-md border border-white/10">
+                <div className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-100">Live</span>
               </div>
             </div>
-            <div className="flex items-center gap-2 rounded-full bg-black/40 px-3 py-1.5 backdrop-blur-md border border-white/10">
-              <div className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-100">Live</span>
-            </div>
-          </div>
+          )}
 
-          {/* Audio Mode Specific UI */}
+          {/* Audio Mode Specific UI - Center avatar only for audio mode */}
           {!isVideo && (
             <div className="absolute inset-0 z-0 flex flex-col items-center justify-center">
               {/* Pulsing Avatar */}
@@ -396,6 +424,10 @@ function CallPage() {
                   alt={peerName}
                   className="relative h-36 w-36 rounded-full border-4 border-[var(--gold)]/30 object-cover shadow-[0_0_60px_rgba(212,175,55,0.15)]"
                 />
+              </div>
+              <div className="mt-4 flex items-center gap-2 rounded-full bg-black/40 px-3 py-1.5 backdrop-blur-md border border-white/10">
+                <div className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-100">Live</span>
               </div>
             </div>
           )}
