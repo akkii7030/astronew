@@ -95,5 +95,23 @@ export default defineConfig({
         },
       }),
     ],
+    // Keep firebase-admin and its heavy Node.js dependencies OUT of the browser
+    // bundle. These are server-only packages and must not be bundled by Vite's
+    // client build. Without this, Vite tries to inline node:stream, node:util etc.
+    // which are not available in the browser and cause the build to fail.
+    ssr: {
+      external: [
+        "firebase-admin",
+        "google-auth-library",
+        "gcp-metadata",
+        "google-gax",
+        "agent-base",
+        "https-proxy-agent",
+        "node-fetch",
+        "node-domexception",
+        "fetch-blob",
+        "formdata-polyfill",
+      ],
+    },
   },
 });
