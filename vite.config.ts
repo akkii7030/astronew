@@ -1,10 +1,8 @@
-// @lovable.dev/vite-tanstack-config already includes the following — do NOT add them manually
-// or the app will break with duplicate plugins:
-//   - tanstackStart, viteReact, tailwindcss, tsConfigPaths, nitro (build-only using cloudflare as a default target),
-//     componentTagger (dev-only), VITE_* env injection, @ path alias, React/TanStack dedupe,
-//     error logger plugins, and sandbox detection (port/host/strictPort).
-// You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
-import { defineConfig } from "@lovable.dev/vite-tanstack-config";
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+import tsConfigPaths from "vite-tsconfig-paths";
+import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import { VitePWA } from "vite-plugin-pwa";
 
 // Packages that must NEVER be bundled into the browser/client build.
@@ -32,112 +30,114 @@ const SERVER_ONLY_PACKAGES = [
 ];
 
 export default defineConfig({
-  // Force-enable Nitro with the node-server preset so it produces a real
-  // standalone HTTP server at .output/server/index.mjs (required for Render).
-  // Without this the @lovable.dev config skips the Nitro build entirely.
-  nitro: { preset: "node-server" },
-  tanstackStart: {
-    // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
-    // nitro/vite builds from this
-    server: { entry: "server" },
-    serverFns: {
-      disableCsrfMiddlewareWarning: true,
+  plugins: [
+    tanstackStart({
+      // SSR entry point
+      server: { entry: "src/start.ts" },
+      serverFns: {
+        disableCsrfMiddlewareWarning: true,
+      },
+      // Use node-server preset so Nitro produces .output/server/index.mjs
+      nitro: {
+        preset: "node-server",
+      },
+    }),
+    react(),
+    tailwindcss(),
+    tsConfigPaths(),
+    VitePWA({
+      strategies: "generateSW",
+      registerType: "autoUpdate",
+      injectRegister: null,
+      filename: "sw.js",
+      manifest: false,
+      includeAssets: [
+        "favicon.ico",
+        "offline.html",
+        "manifest.webmanifest",
+        "icons/*.png",
+      ],
+      devOptions: { enabled: false },
+      workbox: {
+        globPatterns: ["**/*.{js,css,html,svg,png,ico,woff2}"],
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        navigateFallback: "/offline.html",
+        navigateFallbackDenylist: [
+          /^\/api\//,
+          /^\/sw\.js$/,
+          /^\/firebase-messaging-sw\.js$/,
+        ],
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+        skipWaiting: true,
+        runtimeCaching: [
+          {
+            urlPattern: ({ request }) => request.mode === "navigate",
+            handler: "NetworkFirst",
+            options: {
+              cacheName: "om-astro-pages",
+              networkTimeoutSeconds: 4,
+              expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 * 7 },
+            },
+          },
+          {
+            urlPattern: /^https:\/\/fonts\.(googleapis|gstatic)\.com\//,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "google-fonts",
+              expiration: { maxEntries: 30, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
+            urlPattern: ({ request, sameOrigin }) =>
+              sameOrigin && request.destination === "image",
+            handler: "CacheFirst",
+            options: {
+              cacheName: "om-astro-images",
+              expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 * 30 },
+            },
+          },
+        ],
+      },
+    }),
+  ],
+  resolve: {
+    alias: {
+      "@": "/src",
     },
   },
-  vite: {
-    // Prevent Vite's dev-server pre-bundler from touching server-only packages.
-    optimizeDeps: {
-      exclude: SERVER_ONLY_PACKAGES,
-    },
-    // Externalize from the SSR (server-side rendering) build.
-    ssr: {
-      external: SERVER_ONLY_PACKAGES,
-    },
-    build: {
-      rollupOptions: {
-        // Externalize from the CLIENT bundle as well.
-        // These packages only run on the server; TanStack Start replaces
-        // server-function calls with HTTP stubs so they're never needed client-side.
-        external: (id: string) =>
-          SERVER_ONLY_PACKAGES.some(
-            (pkg) => id === pkg || id.startsWith(pkg + "/"),
-          ),
+  // Prevent Vite from touching server-only packages during dev pre-bundling
+  optimizeDeps: {
+    exclude: SERVER_ONLY_PACKAGES,
+  },
+  // Externalize from the SSR build
+  ssr: {
+    external: SERVER_ONLY_PACKAGES,
+    noExternal: [/^(?!firebase-admin).*/], // bundle everything except server-only
+  },
+  build: {
+    // Raise warning limit for the Zego SDK which is unavoidably large
+    chunkSizeWarningLimit: 6000,
+    rollupOptions: {
+      // Keep server-only packages out of the client bundle
+      external: (id: string) =>
+        SERVER_ONLY_PACKAGES.some(
+          (pkg) => id === pkg || id.startsWith(pkg + "/"),
+        ),
+      output: {
+        // Split heavy deps into separate chunks to reduce per-chunk memory during build
+        manualChunks: {
+          "vendor-react": ["react", "react-dom"],
+          "vendor-firebase": ["firebase"],
+          "vendor-zego": ["@zegocloud/zego-uikit-prebuilt"],
+          "vendor-tanstack": [
+            "@tanstack/react-router",
+            "@tanstack/react-query",
+          ],
+          "vendor-framer": ["framer-motion"],
+        },
       },
     },
-    plugins: [
-      VitePWA({
-        // Generate a Workbox SW. Registered via our guarded wrapper.
-        strategies: "generateSW",
-        registerType: "autoUpdate",
-        injectRegister: null, // never auto-inject; our wrapper owns registration
-        filename: "sw.js",
-        manifest: false, // we ship public/manifest.webmanifest manually
-        includeAssets: [
-          "favicon.ico",
-          "offline.html",
-          "manifest.webmanifest",
-          "icons/*.png",
-        ],
-        devOptions: { enabled: false },
-        workbox: {
-          globPatterns: ["**/*.{js,css,html,svg,png,ico,woff2}"],
-          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-          navigateFallback: "/offline.html",
-          navigateFallbackDenylist: [
-            /^\/api\//,
-            /^\/__l5e\//,
-            /^\/~oauth/,
-            /^\/sw\.js$/,
-            /^\/firebase-messaging-sw\.js$/,
-          ],
-          cleanupOutdatedCaches: true,
-          clientsClaim: true,
-          skipWaiting: true,
-          runtimeCaching: [
-            {
-              // App navigations — network-first so users always get fresh HTML,
-              // fall back to cache then offline.html.
-              urlPattern: ({ request }) => request.mode === "navigate",
-              handler: "NetworkFirst",
-              options: {
-                cacheName: "om-astro-pages",
-                networkTimeoutSeconds: 4,
-                expiration: { maxEntries: 50, maxAgeSeconds: 60 * 60 * 24 * 7 },
-              },
-            },
-            {
-              // CDN-hosted assets
-              urlPattern: /^\/__l5e\/assets-v1\//,
-              handler: "CacheFirst",
-              options: {
-                cacheName: "om-astro-cdn-assets",
-                expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 * 30 },
-                cacheableResponse: { statuses: [0, 200] },
-              },
-            },
-            {
-              // Google fonts
-              urlPattern: /^https:\/\/fonts\.(googleapis|gstatic)\.com\//,
-              handler: "CacheFirst",
-              options: {
-                cacheName: "google-fonts",
-                expiration: { maxEntries: 30, maxAgeSeconds: 60 * 60 * 24 * 365 },
-                cacheableResponse: { statuses: [0, 200] },
-              },
-            },
-            {
-              // Same-origin static images
-              urlPattern: ({ request, sameOrigin }) =>
-                sameOrigin && request.destination === "image",
-              handler: "CacheFirst",
-              options: {
-                cacheName: "om-astro-images",
-                expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 * 30 },
-              },
-            },
-          ],
-        },
-      }),
-    ],
   },
 });
