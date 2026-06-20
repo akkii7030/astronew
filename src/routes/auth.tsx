@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { Lock, Phone } from "lucide-react";
 import { getFirebaseAuth, getDb } from "@/integrations/firebase/client";
-import { doc, setDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import logoAsset from "@/assets/om-astro-logo.jpeg.asset.json";
 
 const searchSchema = z.object({ redirect: z.string().optional() });
@@ -63,12 +63,20 @@ function AuthPage() {
 
   async function syncProfile(user: any) {
     const db = getDb();
-    await setDoc(doc(db, "users", user.uid), {
+    const userRef = doc(db, "users", user.uid);
+    const existingDoc = await getDoc(userRef);
+    const existingData = existingDoc.data();
+    
+    // Don't overwrite role if it already exists (preserves astrologer role)
+    const role = existingData?.role || "user";
+    await setDoc(userRef, {
       name: user.displayName || user.phoneNumber || "User",
       avatar_url: user.photoURL || null,
       email: user.email || null,
-      role: "user",
+      role,
     }, { merge: true });
+    
+    return role;
   }
 
   async function handleGoogle() {
@@ -96,8 +104,13 @@ function AuthPage() {
         user = res.user;
       }
 
-      await syncProfile(user);
-      navigate({ to: (search.redirect as "/") ?? "/" });
+      const role = await syncProfile(user);
+      // Redirect astrologers to their dashboard, others to home or redirect
+      if (role === "astrologer") {
+        navigate({ to: "/astrologer" });
+      } else {
+        navigate({ to: (search.redirect as "/") ?? "/" });
+      }
     } catch (err: unknown) {
       // User cancelled the popup — don't show an error toast.
       const code = (err as { code?: string })?.code;
@@ -167,8 +180,13 @@ function AuthPage() {
         user = res.user;
       }
 
-      await syncProfile(user);
-      navigate({ to: (search.redirect as "/") ?? "/" });
+      const role = await syncProfile(user);
+      // Redirect astrologers to their dashboard, others to home or redirect
+      if (role === "astrologer") {
+        navigate({ to: "/astrologer" });
+      } else {
+        navigate({ to: (search.redirect as "/") ?? "/" });
+      }
     } catch (err) {
       console.error(err);
       toast.error(err instanceof Error ? err.message : "Invalid or expired code");

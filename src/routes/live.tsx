@@ -25,7 +25,7 @@ const sessions = [
     title: "Saturn Transit 2026 — what it means for you",
     viewers: 1284,
     tag: "Vedic",
-    img: "https://images.unsplash.com/photo-1518709268805-4e9042af2176?w=800&q=70",
+    img: "/banner-1.jpg",
   },
   {
     id: "2",
@@ -33,7 +33,7 @@ const sessions = [
     title: "Live Tarot — pick a card",
     viewers: 642,
     tag: "Tarot",
-    img: "https://images.unsplash.com/photo-1601933513793-a4d18c8e51e1?w=800&q=70",
+    img: "/banner-2.jpg",
   },
   {
     id: "3",
@@ -41,7 +41,7 @@ const sessions = [
     title: "Career Q&A — open chat",
     viewers: 318,
     tag: "Career",
-    img: "https://images.unsplash.com/photo-1518972559570-7cc1309f3229?w=800&q=70",
+    img: "/banner-3.jpg",
   },
 ];
 
