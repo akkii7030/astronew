@@ -37,12 +37,9 @@ export default defineConfig({
       serverFns: {
         disableCsrfMiddlewareWarning: true,
       },
-      // Use node-server preset so Nitro produces .output/server/index.mjs
+      // Use node-server preset for Nitro
       nitro: {
         preset: "node-server",
-        output: {
-          dir: ".output",
-        },
       },
     }),
     react(),
