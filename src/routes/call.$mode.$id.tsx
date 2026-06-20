@@ -239,28 +239,32 @@ function CallPage() {
     const next = !cameraOff;
     setCameraOff(next);
     try { 
-      zpRef.current?.turnCameraOn?.(!next); 
-      // Force update the camera state
-      if (!next) {
-        // Camera on - ensure it's actually on
-        zpRef.current?.turnCameraOn?.(true);
-      } else {
-        // Camera off - ensure it's actually off
+      // Toggle camera using Zego SDK
+      if (next) {
+        // Turn camera off
         zpRef.current?.turnCameraOn?.(false);
+      } else {
+        // Turn camera on
+        zpRef.current?.turnCameraOn?.(true);
       }
-    } catch { /* noop */ }
+    } catch (e) {
+      console.error("[Camera toggle error]", e);
+    }
   };
   const switchCamera = () => {
     const next = !frontCamera;
     setFrontCamera(next);
     try { 
-      // Use the correct Zego SDK method for switching camera
-      zpRef.current?.useFrontFacingCamera?.(!next);
-      // Also try alternative method if available
+      // Switch camera using Zego SDK
       if (zpRef.current?.switchCamera) {
         zpRef.current.switchCamera();
+      } else if (zpRef.current?.useFrontFacingCamera) {
+        // Fallback to useFrontFacingCamera method
+        zpRef.current.useFrontFacingCamera(next);
       }
-    } catch { /* noop */ }
+    } catch (e) {
+      console.error("[Camera switch error]", e);
+    }
   };
 
   // Pick "the other party" based on who I am in the call doc.
