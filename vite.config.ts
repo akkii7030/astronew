@@ -7,6 +7,30 @@
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 import { VitePWA } from "vite-plugin-pwa";
 
+// Packages that must NEVER be bundled into the browser/client build.
+// They are server-side only (firebase-admin and its deep dependency tree).
+const SERVER_ONLY_PACKAGES = [
+  "firebase-admin",
+  "google-auth-library",
+  "gcp-metadata",
+  "google-gax",
+  "@grpc/grpc-js",
+  "@grpc/proto-loader",
+  "grpc",
+  "jws",
+  "jwa",
+  "google-logging-utils",
+  "gtoken",
+  "agent-base",
+  "https-proxy-agent",
+  "node-fetch",
+  "node-domexception",
+  "fetch-blob",
+  "formdata-polyfill",
+  "readable-stream",
+  "buffer-equal-constant-time",
+];
+
 export default defineConfig({
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
@@ -20,6 +44,25 @@ export default defineConfig({
     },
   },
   vite: {
+    // Prevent Vite's dev-server pre-bundler from touching server-only packages.
+    optimizeDeps: {
+      exclude: SERVER_ONLY_PACKAGES,
+    },
+    // Externalize from the SSR (server-side rendering) build.
+    ssr: {
+      external: SERVER_ONLY_PACKAGES,
+    },
+    build: {
+      rollupOptions: {
+        // Externalize from the CLIENT bundle as well.
+        // These packages only run on the server; TanStack Start replaces
+        // server-function calls with HTTP stubs so they're never needed client-side.
+        external: (id: string) =>
+          SERVER_ONLY_PACKAGES.some(
+            (pkg) => id === pkg || id.startsWith(pkg + "/"),
+          ),
+      },
+    },
     plugins: [
       VitePWA({
         // Generate a Workbox SW. Registered via our guarded wrapper.
@@ -95,23 +138,5 @@ export default defineConfig({
         },
       }),
     ],
-    // Keep firebase-admin and its heavy Node.js dependencies OUT of the browser
-    // bundle. These are server-only packages and must not be bundled by Vite's
-    // client build. Without this, Vite tries to inline node:stream, node:util etc.
-    // which are not available in the browser and cause the build to fail.
-    ssr: {
-      external: [
-        "firebase-admin",
-        "google-auth-library",
-        "gcp-metadata",
-        "google-gax",
-        "agent-base",
-        "https-proxy-agent",
-        "node-fetch",
-        "node-domexception",
-        "fetch-blob",
-        "formdata-polyfill",
-      ],
-    },
   },
 });
