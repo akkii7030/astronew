@@ -150,13 +150,19 @@ function CallPage() {
           layout: "Auto",
           onJoinRoom: () => {
             setStatus("connected");
-            if (callId) setCallStatus(callId, "accepted").catch(() => undefined);
+            // Only auto-accept if this is the callee (astrologer) joining after accepting via modal
+            // The caller (user) should not auto-accept - they wait for astrologer to accept
           },
           onUserJoin: () => {
             setStatus("connected");
           },
-          onUserLeave: () => {
-            endCall();
+          onUserLeave: (user: any) => {
+            // Only end call if the remote user leaves (not the local user)
+            // Local user leaving is handled by onLeaveRoom
+            if (user && user.userID && user.userID !== myUid) {
+              console.log("[Call] Remote user left, ending call");
+              endCall();
+            }
           },
           onLeaveRoom: () => endCall(false, true),
         });
