@@ -32,21 +32,36 @@ export interface ChatRoom {
 export async function ensureChatRoom(opts: {
   userUid: string; userName: string;
   astrologerId: string; astrologerName: string;
+  astrologerFirebaseUid?: string | null;
 }) {
   const db = getDb();
-  const otherUid = astroUid(opts.astrologerId);
+  const otherUid = opts.astrologerFirebaseUid || astroUid(opts.astrologerId);
   const id = roomIdFor(opts.userUid, otherUid);
   const ref = doc(db, "chats", id);
   const snap = await getDoc(ref);
+  
   if (!snap.exists()) {
     await setDoc(ref, {
       members: [opts.userUid, otherUid],
       memberNames: { [opts.userUid]: opts.userName, [otherUid]: opts.astrologerName },
       astrologerId: opts.astrologerId,
+      astrologerFirebaseUid: otherUid,  // stored so chat room knows which side is the astrologer
       createdAt: serverTimestamp(),
       lastMessageAt: serverTimestamp(),
       unread: { [opts.userUid]: 0, [otherUid]: 0 },
     });
+  } else {
+    // If the chat exists, patch the names so that if the user updated their profile (e.g. from Guest to a real name),
+    // the astrologer will see the new name.
+    await setDoc(ref, {
+      memberNames: { [opts.userUid]: opts.userName, [otherUid]: opts.astrologerName },
+    }, { merge: true });
+    
+    // Update astrologerFirebaseUid in case it was created before seeding
+    const data = snap.data() as { astrologerFirebaseUid?: string };
+    if (!data.astrologerFirebaseUid && otherUid) {
+      await updateDoc(ref, { astrologerFirebaseUid: otherUid });
+    }
   }
   return id;
 }
@@ -60,7 +75,8 @@ export function listenRooms(userUid: string, cb: (rooms: ChatRoom[]) => void): U
     limit(50),
   );
   return onSnapshot(q, (snap) => {
-    cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<ChatRoom, "id">) })));
+    const rooms = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<ChatRoom, "id">) }));
+    cb(rooms);
   });
 }
 
@@ -71,8 +87,13 @@ export function listenMessages(roomId: string, cb: (msgs: ChatMessage[]) => void
     orderBy("createdAt", "asc"),
     limit(200),
   );
+  console.log("[listenMessages] Listening for messages in roomId:", roomId);
   return onSnapshot(q, (snap) => {
-    cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<ChatMessage, "id">) })));
+    const msgs = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<ChatMessage, "id">) }));
+    console.log("[listenMessages] Messages snapshot:", msgs.length, msgs);
+    cb(msgs);
+  }, (error) => {
+    console.error("[listenMessages] Error listening to messages:", error);
   });
 }
 
@@ -80,15 +101,24 @@ export async function sendMessage(roomId: string, senderId: string, otherId: str
   const db = getDb();
   const trimmed = text.trim();
   if (!trimmed) return;
-  await addDoc(collection(db, "chats", roomId, "messages"), {
-    text: trimmed, senderId, createdAt: serverTimestamp(),
-  });
-  await updateDoc(doc(db, "chats", roomId), {
-    lastMessage: trimmed,
-    lastMessageAt: serverTimestamp(),
-    lastSenderId: senderId,
-    [`unread.${otherId}`]: (await getUnread(roomId, otherId)) + 1,
-  });
+  console.log("[sendMessage] Sending message:", { roomId, senderId, otherId, text: trimmed });
+  try {
+    const msgRef = await addDoc(collection(db, "chats", roomId, "messages"), {
+      text: trimmed, senderId, createdAt: serverTimestamp(),
+    });
+    console.log("[sendMessage] Message added with ID:", msgRef.id);
+    
+    await updateDoc(doc(db, "chats", roomId), {
+      lastMessage: trimmed,
+      lastMessageAt: serverTimestamp(),
+      lastSenderId: senderId,
+      [`unread.${otherId}`]: (await getUnread(roomId, otherId)) + 1,
+    });
+    console.log("[sendMessage] Chat room updated successfully");
+  } catch (e) {
+    console.error("[sendMessage] Failed to send message:", e);
+    throw e;
+  }
 }
 
 async function getUnread(roomId: string, uid: string) {

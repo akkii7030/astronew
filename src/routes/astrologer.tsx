@@ -1,12 +1,13 @@
 // Astrologer dashboard. Listens for the firebase auth user and shows
 // "Online, waiting for calls". The global IncomingCallModal handles ringing.
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { doc, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot, query, collection, where, orderBy, limit } from "firebase/firestore";
 import { signOut } from "firebase/auth";
-import { Radio, LogOut } from "lucide-react";
+import { Radio, LogOut, MessageCircle, Phone, Video, Clock } from "lucide-react";
 import { getFirebaseAuth, getDb } from "@/integrations/firebase/client";
-import { setPresence } from "@/lib/firebase-chat";
+import { setPresence, listenRooms, type ChatRoom } from "@/lib/firebase-chat";
+import { listenReceivedCalls, type CallDoc, type CallMode } from "@/lib/firebase-calls";
 
 export const Route = createFileRoute("/astrologer")({
   ssr: false,
@@ -24,6 +25,9 @@ function AstrologerHome() {
   const [uid, setUid] = useState<string | null>(null);
   const [profile, setProfile] = useState<UserDoc | null>(null);
   const [notAstrologer, setNotAstrologer] = useState(false);
+  const [rooms, setRooms] = useState<ChatRoom[]>([]);
+  const [calls, setCalls] = useState<CallDoc[]>([]);
+  const [callLoading, setCallLoading] = useState(false);
 
   useEffect(() => {
     const auth = getFirebaseAuth();
@@ -37,6 +41,7 @@ function AstrologerHome() {
         if (!data || data.role !== "astrologer") {
           setNotAstrologer(true);
         } else {
+          setNotAstrologer(false);
           setProfile(data);
         }
       });
@@ -44,6 +49,39 @@ function AstrologerHome() {
     });
     return () => off();
   }, [navigate]);
+
+  useEffect(() => {
+    if (!uid) return;
+    console.log("[AstrologerHome] Listening for chat rooms for UID:", uid);
+    const unsub = listenRooms(uid, setRooms);
+    return () => unsub();
+  }, [uid]);
+
+  useEffect(() => {
+    if (!uid) return;
+    console.log("[AstrologerHome] Listening for received calls for UID:", uid);
+    const unsub = listenReceivedCalls(uid, setCalls);
+    return () => unsub();
+  }, [uid]);
+
+  const handleCallUser = async (userUid: string, userName: string, mode: CallMode) => {
+    if (callLoading) return;
+    setCallLoading(true);
+    try {
+      const { startCallToUser } = await import("@/lib/consultation-actions");
+      const { id: callId } = await startCallToUser(userUid, userName, mode);
+      navigate({
+        to: "/call/$mode/$id",
+        params: { mode, id: userUid },
+        search: { callId },
+      });
+    } catch (e) {
+      console.error("Failed to start call", e);
+      import("sonner").then((m) => m.toast.error("Could not start call"));
+    } finally {
+      setCallLoading(false);
+    }
+  };
 
   async function handleSignOut() {
     const u = getFirebaseAuth().currentUser;
@@ -108,6 +146,108 @@ function AstrologerHome() {
             </p>
           </div>
         </div>
+      </div>
+
+      <div className="mt-6 card-luxe p-5">
+        <div className="mb-3 flex items-center gap-2">
+          <MessageCircle className="h-5 w-5 text-[var(--gold)]" />
+          <p className="text-sm font-semibold">Recent Chats</p>
+        </div>
+        {rooms.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No chats yet. Users will appear here when they message you.</p>
+        ) : (
+          <div className="space-y-2">
+            {rooms.map((r) => {
+              const otherUid = r.members.find((m) => m !== uid) ?? "";
+              const name = r.memberNames?.[otherUid] ?? "User";
+              const unread = r.unread?.[uid ?? ""] ?? 0;
+              return (
+                <Link
+                  key={r.id}
+                  to="/chats/$id"
+                  params={{ id: r.id }}
+                  className="flex items-center gap-3 rounded-xl border border-border bg-card p-3 hover:bg-muted/50"
+                >
+                  <div className="grid h-10 w-10 place-items-center rounded-full gold-bg font-display text-sm">
+                    {name.split(" ").map((p) => p[0]).slice(0, 2).join("")}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between">
+                      <span className="truncate font-display text-sm">{name}</span>
+                      {r.lastMessageAt && (
+                        <span className="text-[10px] text-muted-foreground">
+                          {new Date(r.lastMessageAt.toMillis()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-0.5 flex items-center justify-between gap-2">
+                      <p className="truncate text-xs text-muted-foreground">{r.lastMessage ?? "No messages"}</p>
+                      {unread > 0 && (
+                        <span className="grid h-5 min-w-5 place-items-center rounded-full bg-emerald-500 px-1.5 text-[10px] font-semibold text-white">
+                          {unread}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-6 card-luxe p-5">
+        <div className="mb-3 flex items-center gap-2">
+          <Clock className="h-5 w-5 text-[var(--gold)]" />
+          <p className="text-sm font-semibold">Call History</p>
+        </div>
+        {calls.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No calls yet. Users will appear here when they call you.</p>
+        ) : (
+          <div className="space-y-2">
+            {calls.map((c) => {
+              const callerName = c.callerName || "User";
+              const statusColor = c.status === "ended" ? "text-muted-foreground" : 
+                                 c.status === "rejected" ? "text-destructive" : 
+                                 c.status === "missed" ? "text-orange-500" : "text-emerald-500";
+              return (
+                <div key={c.id} className="flex items-center gap-3 rounded-xl border border-border bg-card p-3">
+                  <div className="grid h-10 w-10 place-items-center rounded-full gold-bg font-display text-sm">
+                    {callerName.split(" ").map((p) => p[0]).slice(0, 2).join("")}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between">
+                      <span className="truncate font-display text-sm">{callerName}</span>
+                      <span className={`text-[10px] ${statusColor} capitalize`}>{c.status}</span>
+                    </div>
+                    <div className="mt-0.5 flex items-center justify-between gap-2">
+                      <p className="truncate text-xs text-muted-foreground">
+                        {c.mode === "video" ? "Video call" : "Audio call"}
+                        {c.createdAt && ` • ${new Date(c.createdAt.toMillis()).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}`}
+                      </p>
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => handleCallUser(c.callerUid, callerName, "audio")}
+                          disabled={callLoading}
+                          className="grid h-7 w-7 place-items-center rounded-full border border-border bg-card hover:bg-muted disabled:opacity-50"
+                        >
+                          <Phone className="h-3 w-3" />
+                        </button>
+                        <button
+                          onClick={() => handleCallUser(c.callerUid, callerName, "video")}
+                          disabled={callLoading}
+                          className="grid h-7 w-7 place-items-center rounded-full gold-bg hover:opacity-80 disabled:opacity-50"
+                        >
+                          <Video className="h-3 w-3" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

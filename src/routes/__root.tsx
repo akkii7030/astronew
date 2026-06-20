@@ -14,7 +14,7 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { registerPWA } from "../lib/pwa-register";
 import { IncomingCallModal } from "@/components/IncomingCallModal";
-import { supabase } from "@/integrations/supabase/client";
+import { ensureFirebaseUser } from "@/integrations/firebase/client";
 
 function NotFoundComponent() {
   return (
@@ -138,6 +138,7 @@ function RootShell({ children }: { children: ReactNode }) {
 }
 
 function RootComponent() {
+  console.log("[RootComponent] App mounted");
   const { queryClient } = Route.useRouteContext();
   const navigate = useNavigate();
 
@@ -147,38 +148,19 @@ function RootComponent() {
   }, []);
 
   useEffect(() => {
-    // After Google OAuth redirect, Supabase parses the URL hash and fires SIGNED_IN.
-    // We then navigate to /details (new users) or / (returning users) and strip the hash.
-    const { data: sub } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === "SIGNED_IN" && session) {
-        // Only act when there is an oauth hash in the URL (avoid firing on normal sign-ins)
-        if (!window.location.hash.includes("access_token")) return;
-
-        // Clean the hash from the URL bar
-        history.replaceState(null, "", window.location.pathname + window.location.search);
-
-        // Check if the profile is complete
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("full_name, date_of_birth, time_of_birth, birth_location")
-          .eq("id", session.user.id)
-          .maybeSingle();
-
-        const complete =
-          profile?.full_name &&
-          profile?.date_of_birth &&
-          profile?.time_of_birth &&
-          profile?.birth_location;
-
-        if (!complete) {
-          navigate({ to: "/details", search: { redirect: "/" } });
-        } else {
-          navigate({ to: "/" });
-        }
+    console.log("[RootComponent] First useEffect running - Firebase auth initialization");
+    const initFirebaseForUser = async () => {
+      console.log("[RootComponent] initFirebaseForUser called");
+      try {
+        console.log("[RootComponent] Calling ensureFirebaseUser...");
+        await ensureFirebaseUser();
+        console.log("[RootComponent] Firebase user ensured successfully");
+      } catch (e) {
+        console.error("[RootComponent] Failed to initialize Firebase auth:", e);
       }
-    });
-    return () => sub.subscription.unsubscribe();
-  }, [navigate]);
+    };
+    initFirebaseForUser();
+  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>

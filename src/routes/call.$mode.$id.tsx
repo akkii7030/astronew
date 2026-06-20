@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
 import { toast } from "sonner";
 import {
@@ -30,8 +30,6 @@ export const Route = createFileRoute("/call/$mode/$id")({
   }),
   // No supabase auth gate: astrologers sign in via firebase only and still need
   // to land here to answer a call. We gate on firebase user inside the component.
-  loader: ({ context, params }) =>
-    context.queryClient.ensureQueryData(astrologerQuery(params.id)),
   head: () => ({ meta: [{ title: "Call — Om Astro" }] }),
   component: CallPage,
 });
@@ -46,7 +44,7 @@ function CallPage() {
   const { mode, id } = Route.useParams();
   const { callId } = Route.useSearch();
   const navigate = useNavigate();
-  const { data: astrologer } = useSuspenseQuery(astrologerQuery(id));
+  const { data: astrologer } = useQuery(astrologerQuery(id));
   const fetchZegoToken = useServerFn(getZegoKitToken);
   const containerRef = useRef<HTMLDivElement>(null);
   const zpRef = useRef<any>(null);
@@ -159,7 +157,7 @@ function CallPage() {
           onUserLeave: () => {
             endCall();
           },
-          onLeaveRoom: () => endCall(),
+          onLeaveRoom: () => endCall(false, true),
         });
       } catch (e) {
         console.error(e);
@@ -184,14 +182,30 @@ function CallPage() {
     };
   }, []);
 
-  const endCall = (silent = false) => {
+  const endCall = (silent = false, skipDestroy = false) => {
     if (cleanedUpRef.current) return;
     cleanedUpRef.current = true;
-    try { zpRef.current?.destroy?.(); } catch { /* noop */ }
+    
+    if (!skipDestroy) {
+      try { zpRef.current?.destroy?.(); } catch { /* noop */ }
+    }
     zpRef.current = null;
-    setStatus("ended");
+    
     if (callId && !silent) setCallStatus(callId, "ended").catch(() => undefined);
-    navigate({ to: "/astrologers/$id", params: { id } });
+
+    // Give Zego UI Kit time to asynchronously teardown before unmounting the page
+    setTimeout(() => {
+      setStatus("ended");
+      const isAstrologerSide = !!(callDoc && myUid && callDoc.astrologerId === myUid);
+      if (isAstrologerSide) {
+        navigate({ to: "/astrologer" });
+      } else {
+        navigate({
+          to: "/astrologers/$id",
+          params: { id: callDoc?.astrologerId ?? id },
+        });
+      }
+    }, 400);
   };
 
   const toggleMic = () => {
@@ -216,6 +230,10 @@ function CallPage() {
   };
 
   // Pick "the other party" based on who I am in the call doc.
+  // If I am the astrologer, the other party is the user.
+  // The user is the one who is NOT the astrologer.
+  const isAstrologerSide = !!(callDoc && myUid && callDoc.astrologerId === myUid);
+  // If I am the caller, the peer is the callee. If I am the callee, the peer is the caller.
   const isCallee = !!(callDoc && myUid && callDoc.calleeUid === myUid);
   const peerName = callDoc
     ? (isCallee ? callDoc.callerName : callDoc.calleeName)
@@ -224,7 +242,7 @@ function CallPage() {
     ? (isCallee ? callDoc.callerAvatar : callDoc.calleeAvatar)
     : astrologer?.avatar_url) || PLACEHOLDER;
   const avatar = peerAvatar;
-  const skills = !isCallee ? astrologer?.skills?.slice(0, 3).join(" · ") : undefined;
+  const skills = !isAstrologerSide ? astrologer?.skills?.slice(0, 3).join(" · ") : undefined;
   const isVideo = mode === "video";
   const isRinging = callId && callDoc?.status === "ringing";
   const statusLabel =
@@ -298,71 +316,148 @@ function CallPage() {
           <p className="mt-4 text-xs uppercase tracking-[0.2em] text-[var(--gold)]/80">
             {isVideo ? "Video call" : "Audio call"}
           </p>
-          <p className="mt-1 text-sm text-white/60">
-            {isRinging ? (isCallee ? "Incoming…" : "Ringing astrologer…")
-              : status === "connecting" ? "Connecting…"
-              : status === "connected" ? "On call"
-              : error ?? ""}
-          </p>
+          <div className="flex items-center gap-3">
+            {status === "connecting" ? (
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--gold)] border-t-transparent" />
+            ) : (
+              <span className="flex h-3 w-3 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--gold)] opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-[var(--gold)]"></span>
+              </span>
+            )}
+            <p className="text-sm font-medium uppercase tracking-widest text-white/70">
+              {statusLabel}
+            </p>
+          </div>
+          {isRinging && !isCallee && (
+            <div className="absolute bottom-16">
+              <button
+                onClick={() => endCall()}
+                className="grid h-16 w-16 place-items-center rounded-full bg-red-500 shadow-lg transition active:scale-95"
+              >
+                <PhoneOff className="h-6 w-6" />
+              </button>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Bottom controls */}
-      <div className="absolute inset-x-0 bottom-0 z-10 pb-8">
-        <div className="mx-auto flex max-w-md items-center justify-center gap-4 px-6">
-          <button
-            onClick={toggleMic}
-            aria-label="Mute"
-            className={`grid h-14 w-14 place-items-center rounded-full backdrop-blur transition active:scale-95 ${
-              muted ? "bg-white text-[#0b0820]" : "bg-white/15"
-            }`}
-          >
-            {muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
-          </button>
+      {status === "ended" && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-[#0b0820]">
+          <p className="mb-4 text-xl font-semibold">Call Ended</p>
+          <p className="text-sm text-white/60">{formatTime(seconds)}</p>
+        </div>
+      )}
 
-          {isVideo ? (
-            <>
-              <button
-                onClick={toggleCamera}
-                aria-label="Camera"
-                className={`grid h-14 w-14 place-items-center rounded-full backdrop-blur transition active:scale-95 ${
-                  cameraOff ? "bg-white text-[#0b0820]" : "bg-white/15"
-                }`}
-              >
-                {cameraOff ? <VideoOff className="h-5 w-5" /> : <VideoIcon className="h-5 w-5" />}
-              </button>
-              <button
-                onClick={switchCamera}
-                aria-label="Switch camera"
-                className="grid h-14 w-14 place-items-center rounded-full bg-white/15 backdrop-blur transition active:scale-95"
-              >
-                <SwitchCamera className="h-5 w-5" />
-              </button>
-            </>
-          ) : (
-            <button
-              onClick={toggleSpeaker}
-              aria-label="Speaker"
-              className={`grid h-14 w-14 place-items-center rounded-full backdrop-blur transition active:scale-95 ${
-                speakerOff ? "bg-white text-[#0b0820]" : "bg-white/15"
-              }`}
-            >
-              {speakerOff ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
-            </button>
-          )}
-
+      {status === "error" && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-[#0b0820] px-6 text-center">
+          <div className="mb-4 grid h-16 w-16 place-items-center rounded-full bg-red-500/10 text-red-500">
+            <PhoneOff className="h-8 w-8" />
+          </div>
+          <p className="mb-2 text-xl font-semibold">Call Failed</p>
+          <p className="text-sm text-white/60">{error || "Could not connect to the call."}</p>
           <button
             onClick={() => endCall()}
-            aria-label="End call"
-            className="grid h-16 w-16 place-items-center rounded-full bg-red-500 shadow-[0_10px_30px_-8px_rgba(239,68,68,0.7)] transition active:scale-95"
+            className="mt-8 rounded-full bg-white/10 px-8 py-3 text-sm font-semibold transition hover:bg-white/20 active:scale-95"
           >
-            <PhoneOff className="h-6 w-6" />
+            Go Back
           </button>
         </div>
-        <p className="mt-4 text-center text-[11px] text-white/40">
-          Tap end to leave the call
-        </p>
-      </div>
+      )}
+
+      {status === "connected" && (
+        <>
+          {/* Top Info Bar (Overlaid) */}
+          <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-between bg-gradient-to-b from-black/60 to-transparent p-6 pt-12">
+            <div className="flex items-center gap-3">
+              <img src={avatar} alt="" className="h-10 w-10 rounded-full border border-white/20 object-cover" />
+              <div>
+                <p className="font-display font-semibold text-white drop-shadow-md">{peerName}</p>
+                <p className="text-[11px] font-medium tracking-wider text-white/80 drop-shadow-md">
+                  {formatTime(seconds)}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 rounded-full bg-black/40 px-3 py-1.5 backdrop-blur-md border border-white/10">
+              <div className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-100">Live</span>
+            </div>
+          </div>
+
+          {/* Audio Mode Specific UI */}
+          {!isVideo && (
+            <div className="absolute inset-0 z-0 flex flex-col items-center justify-center">
+              {/* Pulsing Avatar */}
+              <div className="relative">
+                <div className="absolute inset-0 animate-ping rounded-full bg-[var(--gold)]/20" style={{ animationDuration: "3s" }} />
+                <div className="absolute inset-0 animate-ping rounded-full bg-[var(--gold)]/10" style={{ animationDuration: "2s", animationDelay: "0.5s" }} />
+                <img
+                  src={avatar}
+                  alt={peerName}
+                  className="relative h-36 w-36 rounded-full border-4 border-[var(--gold)]/30 object-cover shadow-[0_0_60px_rgba(212,175,55,0.15)]"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Bottom Controls Bar */}
+          <div className="absolute inset-x-0 bottom-0 z-10 flex flex-col items-center bg-gradient-to-t from-black/80 via-black/40 to-transparent pb-10 pt-20">
+            <div className="flex items-center gap-6">
+              <button
+                onClick={toggleMic}
+                aria-label="Microphone"
+                className={`grid h-14 w-14 place-items-center rounded-full backdrop-blur transition active:scale-95 ${
+                  muted ? "bg-white text-[#0b0820]" : "bg-white/15"
+                }`}
+              >
+                {muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+              </button>
+
+              {isVideo ? (
+                <>
+                  <button
+                    onClick={toggleCamera}
+                    aria-label="Camera"
+                    className={`grid h-14 w-14 place-items-center rounded-full backdrop-blur transition active:scale-95 ${
+                      cameraOff ? "bg-white text-[#0b0820]" : "bg-white/15"
+                    }`}
+                  >
+                    {cameraOff ? <VideoOff className="h-5 w-5" /> : <VideoIcon className="h-5 w-5" />}
+                  </button>
+                  <button
+                    onClick={switchCamera}
+                    aria-label="Switch Camera"
+                    className="grid h-14 w-14 place-items-center rounded-full bg-white/15 backdrop-blur transition active:scale-95"
+                  >
+                    <SwitchCamera className="h-5 w-5" />
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={toggleSpeaker}
+                  aria-label="Speaker"
+                  className={`grid h-14 w-14 place-items-center rounded-full backdrop-blur transition active:scale-95 ${
+                    speakerOff ? "bg-white text-[#0b0820]" : "bg-white/15"
+                  }`}
+                >
+                  {speakerOff ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
+                </button>
+              )}
+
+              <button
+                onClick={() => endCall()}
+                aria-label="End call"
+                className="grid h-16 w-16 place-items-center rounded-full bg-red-500 shadow-[0_10px_30px_-8px_rgba(239,68,68,0.7)] transition active:scale-95"
+              >
+                <PhoneOff className="h-6 w-6" />
+              </button>
+            </div>
+            <p className="mt-4 text-center text-[11px] text-white/40">
+              Tap end to leave the call
+            </p>
+          </div>
+        </>
+      )}
     </div>
   );
 }

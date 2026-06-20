@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { motion } from "framer-motion";
 import logoAsset from "@/assets/om-astro-logo.jpeg.asset.json";
-import { supabase } from "@/integrations/supabase/client";
+import { getFirebaseAuth } from "@/integrations/firebase/client";
 
 export const Route = createFileRoute("/splash")({
   ssr: false,
@@ -13,11 +13,14 @@ export const Route = createFileRoute("/splash")({
 function SplashPage() {
   const navigate = useNavigate();
   useEffect(() => {
-    const t = setTimeout(async () => {
-      const { data } = await supabase.auth.getSession();
-      if (data.session) return navigate({ to: "/" });
-      const onboarded = localStorage.getItem("om-onboarded") === "1";
-      navigate({ to: onboarded ? "/auth" : "/onboarding" });
+    const t = setTimeout(() => {
+      const auth = getFirebaseAuth();
+      const unsub = auth.onAuthStateChanged((u) => {
+        unsub();
+        if (u && !u.isAnonymous) return navigate({ to: "/" });
+        const onboarded = localStorage.getItem("om-onboarded") === "1";
+        navigate({ to: onboarded ? "/auth" : "/onboarding" });
+      });
     }, 1800);
     return () => clearTimeout(t);
   }, [navigate]);

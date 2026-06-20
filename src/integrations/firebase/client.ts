@@ -1,6 +1,6 @@
 // Firebase client (browser-only) for Phone OTP + Firestore chat.
 import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
-import { getAuth, signInAnonymously, type Auth } from "firebase/auth";
+import { getAuth, signInAnonymously, type Auth, browserLocalPersistence, setPersistence } from "firebase/auth";
 import { getFirestore, type Firestore } from "firebase/firestore";
 
 const firebaseConfig = {
@@ -20,12 +20,25 @@ let _db: Firestore | undefined;
 
 function app() {
   if (typeof window === "undefined") throw new Error("Firebase is browser-only");
-  if (!_app) _app = getApps()[0] ?? initializeApp(firebaseConfig);
+  if (!_app) {
+    console.log("[Firebase] Initializing Firebase app...");
+    _app = getApps()[0] ?? initializeApp(firebaseConfig);
+    console.log("[Firebase] Firebase app initialized:", _app.name);
+  }
   return _app;
 }
 
 export function getFirebaseAuth(): Auth {
-  if (!_auth) _auth = getAuth(app());
+  if (!_auth) {
+    console.log("[Firebase] Getting Firebase auth...");
+    _auth = getAuth(app());
+    console.log("[Firebase] Firebase auth obtained:", _auth);
+    // Set persistence to LOCAL so Firebase auth survives page reloads
+    setPersistence(_auth, browserLocalPersistence).catch((e) => {
+      console.error("[Firebase] Failed to set persistence:", e);
+    });
+    console.log("[Firebase] Persistence set to LOCAL");
+  }
   return _auth;
 }
 
@@ -34,12 +47,31 @@ export function getDb(): Firestore {
   return _db;
 }
 
-/** Ensure there is a Firebase user (anon fallback for Google-via-Supabase sessions). */
 export async function ensureFirebaseUser() {
   const auth = getFirebaseAuth();
+
+  // Wait for the first auth state emission so we don't accidentally overwrite
+  // an existing session loading from IndexedDB
+  await new Promise<void>((resolve) => {
+    const unsub = auth.onAuthStateChanged(() => {
+      unsub();
+      resolve();
+    });
+  });
+
   if (auth.currentUser) return auth.currentUser;
-  const cred = await signInAnonymously(auth);
-  return cred.user;
+  try {
+    const cred = await signInAnonymously(auth);
+    return cred.user;
+  } catch (e: unknown) {
+    const code = (e as { code?: string })?.code;
+    if (code === "auth/operation-not-allowed") {
+      throw new Error(
+        "Anonymous sign-in is disabled. Enable it in Firebase Console → Authentication → Sign-in method → Anonymous."
+      );
+    }
+    throw e;
+  }
 }
 
 export const FIREBASE_PROJECT_ID = firebaseConfig.projectId;

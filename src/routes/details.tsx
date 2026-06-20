@@ -1,10 +1,11 @@
-import { createFileRoute, useNavigate, redirect } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { z } from "zod";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { User, CalendarDays, Clock, MapPin } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { getFirebaseAuth, getDb } from "@/integrations/firebase/client";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 
 const searchSchema = z.object({ redirect: z.string().optional() });
 
@@ -13,8 +14,13 @@ export const Route = createFileRoute("/details")({
   validateSearch: searchSchema,
   beforeLoad: async ({ location }) => {
     if (typeof window === "undefined") return;
-    const { data } = await supabase.auth.getSession();
-    if (!data.session) {
+    const auth = getFirebaseAuth();
+    // Wait for Firebase auth to initialize
+    await new Promise((resolve) => {
+      const unsub = auth.onAuthStateChanged((u) => { unsub(); resolve(u); });
+    });
+    if (!auth.currentUser) {
+      const { redirect } = await import("@tanstack/react-router");
       throw redirect({ to: "/auth", search: { redirect: location.href } });
     }
   },
@@ -33,31 +39,32 @@ function DetailsPage() {
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    (async () => {
-      const { data: sess } = await supabase.auth.getSession();
-      if (!sess.session) return;
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("full_name, date_of_birth, time_of_birth, birth_location")
-        .eq("id", sess.session.user.id)
-        .maybeSingle();
-      if (profile) {
-        setFullName(profile.full_name ?? "");
-        setDob(profile.date_of_birth ?? "");
-        setTob(profile.time_of_birth ?? "");
-        setPlace(profile.birth_location ?? "");
-        if (
-          profile.full_name &&
-          profile.date_of_birth &&
-          profile.time_of_birth &&
-          profile.birth_location
-        ) {
-          navigate({ to: (search.redirect as "/") ?? "/", replace: true });
-          return;
+    const auth = getFirebaseAuth();
+    const offAuth = auth.onAuthStateChanged(async (u) => {
+      offAuth();
+      if (!u) return;
+      try {
+        const snap = await getDoc(doc(getDb(), "users", u.uid));
+        const profile = snap.data();
+        if (profile) {
+          setFullName(profile.name ?? "");
+          setDob(profile.date_of_birth ?? "");
+          setTob(profile.time_of_birth ?? "");
+          setPlace(profile.birth_location ?? "");
+          if (
+            profile.name &&
+            profile.date_of_birth &&
+            profile.time_of_birth &&
+            profile.birth_location
+          ) {
+            navigate({ to: (search.redirect as "/") ?? "/", replace: true });
+            return;
+          }
         }
-      }
+      } catch { /* noop */ }
       setChecking(false);
-    })();
+    });
+    return () => offAuth();
   }, []);
 
   async function submit(e: React.FormEvent) {
@@ -68,17 +75,16 @@ function DetailsPage() {
     }
     setLoading(true);
     try {
-      const { data: sess } = await supabase.auth.getSession();
-      const uid = sess.session?.user.id;
-      if (!uid) throw new Error("Not signed in");
-      const { error } = await supabase.from("profiles").upsert({
-        id: uid,
-        full_name: fullName.trim(),
+      const auth = getFirebaseAuth();
+      const u = auth.currentUser;
+      if (!u) throw new Error("Not signed in");
+      await setDoc(doc(getDb(), "users", u.uid), {
+        name: fullName.trim(),
         date_of_birth: dob,
         time_of_birth: tob,
         birth_location: place.trim(),
-      });
-      if (error) throw error;
+        role: "user",
+      }, { merge: true });
       toast.success("Welcome to Om Astro");
       navigate({ to: (search.redirect as "/") ?? "/", replace: true });
     } catch (err) {
@@ -89,7 +95,14 @@ function DetailsPage() {
   }
 
   if (checking) {
-    return <div className="grid min-h-screen place-items-center text-sm text-muted-foreground">Loading…</div>;
+    return (
+      <div className="grid min-h-screen place-items-center bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-[var(--gold)] border-t-transparent" />
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        </div>
+      </div>
+    );
   }
 
   return (

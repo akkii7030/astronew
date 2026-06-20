@@ -1,12 +1,11 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
-import { useServerFn } from "@tanstack/react-start";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { LogOut, User, Mail, Phone, Cake, ShieldCheck } from "lucide-react";
 import { MobileShell } from "@/components/MobileShell";
-import { supabase } from "@/integrations/supabase/client";
+import { getFirebaseAuth, getDb } from "@/integrations/firebase/client";
 import { useSession } from "@/hooks/use-session";
-import { sendPhoneOtp, verifyPhoneOtp } from "@/lib/otp.functions";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import { requireAuth } from "@/lib/auth-guard";
 
 export const Route = createFileRoute("/profile")({
@@ -17,13 +16,12 @@ export const Route = createFileRoute("/profile")({
 });
 
 type Profile = {
-  id: string;
-  full_name: string | null;
+  name: string | null;
   phone: string | null;
-  phone_verified: boolean | null;
   date_of_birth: string | null;
   gender: string | null;
   avatar_url: string | null;
+  email: string | null;
 };
 
 function initials(name?: string | null, email?: string | null) {
@@ -34,8 +32,6 @@ function initials(name?: string | null, email?: string | null) {
 function ProfilePage() {
   const { user, loading } = useSession();
   const navigate = useNavigate();
-  const sendOtp = useServerFn(sendPhoneOtp);
-  const verifyOtp = useServerFn(verifyPhoneOtp);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [name, setName] = useState("");
   const [dob, setDob] = useState("");
@@ -45,6 +41,8 @@ function ProfilePage() {
   const [otpSent, setOtpSent] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [saving, setSaving] = useState(false);
+  const confirmRef = useRef<{ confirm: (code: string) => Promise<any> } | null>(null);
+  const verifierRef = useRef<any>(null);
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/auth", search: { redirect: "/profile" } });
@@ -52,10 +50,11 @@ function ProfilePage() {
 
   useEffect(() => {
     if (!user) return;
-    supabase.from("profiles").select("*").eq("id", user.id).maybeSingle().then(({ data }) => {
+    getDoc(doc(getDb(), "users", user.uid)).then((snap) => {
+      const data = snap.data();
       if (data) {
         setProfile(data as Profile);
-        setName(data.full_name ?? "");
+        setName(data.name ?? "");
         setDob(data.date_of_birth ?? "");
         setGender(data.gender ?? "");
         setPhone(data.phone ?? "");
@@ -69,12 +68,19 @@ function ProfilePage() {
 
   async function save() {
     setSaving(true);
-    const { error } = await supabase.from("profiles").upsert({
-      id: user!.id, full_name: name || null, date_of_birth: dob || null, gender: gender || null,
-    });
-    setSaving(false);
-    if (error) { console.error(error); toast.error("Failed to save profile. Please try again."); }
-    else toast.success("Profile saved");
+    try {
+      await setDoc(doc(getDb(), "users", user!.uid), {
+        name: name || null,
+        date_of_birth: dob || null,
+        gender: gender || null,
+      }, { merge: true });
+      toast.success("Profile saved");
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to save profile. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleSendOtp() {
@@ -84,7 +90,17 @@ function ProfilePage() {
     }
     setVerifying(true);
     try {
-      await sendOtp({ data: { phone } });
+      const { signInWithPhoneNumber, RecaptchaVerifier } = await import("firebase/auth");
+      const auth = getFirebaseAuth();
+      if (!verifierRef.current) {
+        const container = document.getElementById("recaptcha-container-profile");
+        if (container) {
+          verifierRef.current = new RecaptchaVerifier(auth, container, { size: "invisible" });
+          await verifierRef.current.render();
+        }
+      }
+      const confirmation = await signInWithPhoneNumber(auth, phone, verifierRef.current);
+      confirmRef.current = confirmation;
       setOtpSent(true);
       toast.success("We sent a 6-digit code via SMS");
     } catch (e) {
@@ -94,12 +110,15 @@ function ProfilePage() {
   }
 
   async function handleVerifyOtp() {
+    if (!confirmRef.current) return;
     setVerifying(true);
     try {
-      await verifyOtp({ data: { phone, code: otp } });
+      await confirmRef.current.confirm(otp);
+      // Save phone to Firestore
+      await setDoc(doc(getDb(), "users", user!.uid), { phone }, { merge: true });
       toast.success("Phone verified");
       setOtpSent(false); setOtp("");
-      setProfile((p) => p ? { ...p, phone, phone_verified: true } : p);
+      setProfile((p) => p ? { ...p, phone } : p);
     } catch (e) {
       console.error(e);
       toast.error(e instanceof Error ? e.message : "Invalid or expired code");
@@ -107,22 +126,22 @@ function ProfilePage() {
   }
 
   async function signOut() {
-    await supabase.auth.signOut();
+    const auth = getFirebaseAuth();
+    await auth.signOut();
     navigate({ to: "/auth" });
   }
 
-  const isVerified = !!profile?.phone_verified && profile?.phone === phone;
-
   return (
     <MobileShell>
+      <div id="recaptcha-container-profile" />
       <div className="space-y-5 px-5 pt-2">
         <div className="card-luxe p-5">
           <div className="flex items-center gap-3">
             <div className="grid h-14 w-14 place-items-center rounded-full gold-bg font-display text-lg shadow-luxe">
-              {initials(profile?.full_name, user.email)}
+              {initials(profile?.name, user.email)}
             </div>
             <div className="min-w-0">
-              <h1 className="truncate font-display text-xl">{profile?.full_name || "Your profile"}</h1>
+              <h1 className="truncate font-display text-xl">{profile?.name || "Your profile"}</h1>
               <p className="truncate text-xs text-muted-foreground">{user.email ?? profile?.phone}</p>
             </div>
           </div>
@@ -151,7 +170,7 @@ function ProfilePage() {
         <section className="card-luxe space-y-3 p-5">
           <div className="flex items-center justify-between">
             <h2 className="font-display text-lg">Phone verification</h2>
-            {isVerified && (
+            {profile?.phone && (
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700">
                 <ShieldCheck className="h-3 w-3" /> Verified
               </span>
@@ -166,15 +185,13 @@ function ProfilePage() {
           {otpSent && (
             <Field icon={<ShieldCheck className="h-4 w-4" />} placeholder="6-digit code" value={otp} onChange={setOtp} />
           )}
-          {!isVerified && (
-            <button
-              onClick={otpSent ? handleVerifyOtp : handleSendOtp}
-              disabled={verifying || !phone || (otpSent && otp.length < 6)}
-              className="w-full rounded-full gold-bg py-3 text-sm font-semibold shadow-luxe disabled:opacity-60"
-            >
-              {verifying ? "Please wait…" : otpSent ? "Verify code" : "Send OTP"}
-            </button>
-          )}
+          <button
+            onClick={otpSent ? handleVerifyOtp : handleSendOtp}
+            disabled={verifying || !phone || (otpSent && otp.length < 6)}
+            className="w-full rounded-full gold-bg py-3 text-sm font-semibold shadow-luxe disabled:opacity-60"
+          >
+            {verifying ? "Please wait…" : otpSent ? "Verify code" : "Send OTP"}
+          </button>
           <p className="text-[11px] text-muted-foreground">SMS rates may apply. Code expires in 5 minutes.</p>
         </section>
 

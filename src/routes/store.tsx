@@ -177,7 +177,7 @@ function StorePage() {
         </div>
 
         <a
-          href={`${STORE}/shop`}
+          href={`${STORE}`}
           target="_blank"
           rel="noopener noreferrer"
           className="mt-7 flex items-center justify-center gap-2 rounded-full gold-bg py-3.5 text-sm font-semibold shadow-luxe"

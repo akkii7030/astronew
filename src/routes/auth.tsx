@@ -1,14 +1,11 @@
 import { createFileRoute, useNavigate, redirect } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
-import { useServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { Lock, Phone } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
-
-import { getFirebaseAuth } from "@/integrations/firebase/client";
-import { exchangeFirebaseToken, exchangeGoogleToken } from "@/lib/firebase-bridge.functions";
+import { getFirebaseAuth, getDb } from "@/integrations/firebase/client";
+import { doc, setDoc } from "firebase/firestore";
 import logoAsset from "@/assets/om-astro-logo.jpeg.asset.json";
 
 const searchSchema = z.object({ redirect: z.string().optional() });
@@ -17,8 +14,18 @@ export const Route = createFileRoute("/auth")({
   ssr: false,
   validateSearch: searchSchema,
   beforeLoad: async ({ search }) => {
-    const { data } = await supabase.auth.getSession();
-    if (data.session) throw redirect({ to: (search.redirect as "/") ?? "/" });
+    const auth = getFirebaseAuth();
+    // Wait for auth to initialize
+    await new Promise((resolve) => {
+      const unsub = auth.onAuthStateChanged((u) => {
+        unsub();
+        resolve(u);
+      });
+    });
+    // If they have a non-anonymous account, they are fully logged in
+    if (auth.currentUser && !auth.currentUser.isAnonymous) {
+      throw redirect({ to: (search.redirect as "/") ?? "/" });
+    }
   },
   head: () => ({ meta: [{ title: "Sign in — Om Astro" }] }),
   component: AuthPage,
@@ -27,15 +34,13 @@ export const Route = createFileRoute("/auth")({
 function AuthPage() {
   const navigate = useNavigate();
   const search = Route.useSearch();
-  const exchange = useServerFn(exchangeFirebaseToken);
-  const googleExchange = useServerFn(exchangeGoogleToken);
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [otpSent, setOtpSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const recaptchaRef = useRef<HTMLDivElement | null>(null);
   const verifierRef = useRef<unknown>(null);
-  const confirmationRef = useRef<{ confirm: (code: string) => Promise<{ user: { getIdToken: () => Promise<string> } }> } | null>(null);
+  const confirmationRef = useRef<{ confirm: (code: string) => Promise<any>, verificationId: string } | null>(null);
 
   useEffect(() => {
     return () => {
@@ -56,33 +61,51 @@ function AuthPage() {
     return v;
   }
 
+  async function syncProfile(user: any) {
+    const db = getDb();
+    await setDoc(doc(db, "users", user.uid), {
+      name: user.displayName || user.phoneNumber || "User",
+      avatar_url: user.photoURL || null,
+      email: user.email || null,
+      role: "user",
+    }, { merge: true });
+  }
+
   async function handleGoogle() {
     setLoading(true);
     try {
       // Use Firebase Google popup (Firebase project already has Google OAuth
       // configured) — avoids needing Supabase Google OAuth credentials.
-      const { GoogleAuthProvider, signInWithPopup } = await import("firebase/auth");
+      const { GoogleAuthProvider, signInWithPopup, linkWithPopup } = await import("firebase/auth");
       const auth = getFirebaseAuth();
-      const result = await signInWithPopup(auth, new GoogleAuthProvider());
-      const idToken = await result.user.getIdToken();
+      const provider = new GoogleAuthProvider();
+      
+      let user;
+      if (auth.currentUser && auth.currentUser.isAnonymous) {
+        try {
+          const res = await linkWithPopup(auth.currentUser, provider);
+          user = res.user;
+        } catch (e: any) {
+          if (e.code === "auth/credential-already-in-use") {
+             const res = await signInWithPopup(auth, provider);
+             user = res.user;
+          } else throw e;
+        }
+      } else {
+        const res = await signInWithPopup(auth, provider);
+        user = res.user;
+      }
 
-      // Bridge the Firebase Google token into a Supabase session via magic link.
-      const { actionLink } = await googleExchange({
-        data: {
-          idToken,
-          redirectTo: window.location.origin + (search.redirect ?? "/"),
-        },
-      });
-      // Magic link sets the Supabase session in the URL hash on load.
-      window.location.replace(actionLink);
+      await syncProfile(user);
+      navigate({ to: (search.redirect as "/") ?? "/" });
     } catch (err: unknown) {
       // User cancelled the popup — don't show an error toast.
       const code = (err as { code?: string })?.code;
       if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
+        setLoading(false);
         return;
       }
       console.error(err);
-      alert("Login Error: " + (err instanceof Error ? err.message : String(err)));
       toast.error(err instanceof Error ? err.message : "Google sign-in failed");
     } finally {
       setLoading(false);
@@ -100,7 +123,7 @@ function AuthPage() {
       const { signInWithPhoneNumber } = await import("firebase/auth");
       const auth = getFirebaseAuth();
       const verifier = await ensureVerifier();
-      const confirmation = await signInWithPhoneNumber(auth, e164, verifier as Parameters<typeof signInWithPhoneNumber>[2]);
+      const confirmation = await signInWithPhoneNumber(auth, e164, verifier as any);
       confirmationRef.current = confirmation;
       setOtpSent(true);
       toast.success("We sent a 6-digit code to your phone.");
@@ -124,14 +147,28 @@ function AuthPage() {
     }
     setLoading(true);
     try {
-      const cred = await confirmationRef.current.confirm(otp);
-      const idToken = await cred.user.getIdToken();
-      const { actionLink } = await exchange({
-        data: { idToken, redirectTo: window.location.origin + (search.redirect ?? "/") },
-      });
-      // Follow the magic link — Supabase sets the session in URL hash and the
-      // client picks it up on load, then auth-guard routes to /details if needed.
-      window.location.replace(actionLink);
+      const { PhoneAuthProvider, signInWithCredential, linkWithCredential } = await import("firebase/auth");
+      const auth = getFirebaseAuth();
+      const cred = PhoneAuthProvider.credential(confirmationRef.current.verificationId, otp);
+      
+      let user;
+      if (auth.currentUser && auth.currentUser.isAnonymous) {
+        try {
+          const res = await linkWithCredential(auth.currentUser, cred);
+          user = res.user;
+        } catch (e: any) {
+          if (e.code === "auth/credential-already-in-use") {
+             const res = await signInWithCredential(auth, cred);
+             user = res.user;
+          } else throw e;
+        }
+      } else {
+        const res = await signInWithCredential(auth, cred);
+        user = res.user;
+      }
+
+      await syncProfile(user);
+      navigate({ to: (search.redirect as "/") ?? "/" });
     } catch (err) {
       console.error(err);
       toast.error(err instanceof Error ? err.message : "Invalid or expired code");

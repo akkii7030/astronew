@@ -27,17 +27,28 @@ export const Route = createFileRoute("/api/public/cashfree-webhook")({
         const order = payload?.data?.order;
         const payment = payload?.data?.payment;
         if (type === "PAYMENT_SUCCESS_WEBHOOK" && order?.order_id) {
-          const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-          const { data: tx } = await supabaseAdmin.from("wallet_transactions")
-            .select("id, user_id, amount_paise, status")
-            .eq("provider_order_id", order.order_id).maybeSingle();
-          if (tx && tx.status === "pending") {
-            await creditWallet(tx.id, tx.user_id, tx.amount_paise, payment?.cf_payment_id?.toString() ?? null);
+          const { getFirebaseAdmin } = await import("@/lib/cashfree.functions");
+          const db = await getFirebaseAdmin();
+          const snap = await db.collection("wallet_transactions")
+            .where("provider_order_id", "==", order.order_id).limit(1).get();
+          
+          if (!snap.empty) {
+            const txDoc = snap.docs[0];
+            const tx = txDoc.data();
+            if (tx.status === "pending") {
+              await creditWallet(txDoc.id, tx.user_id, tx.amount_paise, payment?.cf_payment_id?.toString() ?? null);
+            }
           }
+
         } else if (type === "PAYMENT_FAILED_WEBHOOK" && order?.order_id) {
-          const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-          await supabaseAdmin.from("wallet_transactions").update({ status: "failed" })
-            .eq("provider_order_id", order.order_id).eq("status", "pending");
+          const { getFirebaseAdmin } = await import("@/lib/cashfree.functions");
+          const db = await getFirebaseAdmin();
+          const snap = await db.collection("wallet_transactions")
+            .where("provider_order_id", "==", order.order_id).limit(1).get();
+            
+          if (!snap.empty) {
+            await snap.docs[0].ref.update({ status: "failed" });
+          }
         }
         return new Response("ok");
       },

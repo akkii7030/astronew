@@ -17,12 +17,12 @@ import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as LiveRouteImport } from './routes/live'
 import { Route as DetailsRouteImport } from './routes/details'
-import { Route as ChatsRouteImport } from './routes/chats'
 import { Route as CategoriesRouteImport } from './routes/categories'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AstrologerLoginRouteImport } from './routes/astrologer-login'
 import { Route as AstrologerRouteImport } from './routes/astrologer'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ChatsIndexRouteImport } from './routes/chats.index'
 import { Route as AstrologersIndexRouteImport } from './routes/astrologers.index'
 import { Route as ChatsIdRouteImport } from './routes/chats.$id'
 import { Route as AstrologersIdRouteImport } from './routes/astrologers.$id'
@@ -69,11 +69,6 @@ const DetailsRoute = DetailsRouteImport.update({
   path: '/details',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ChatsRoute = ChatsRouteImport.update({
-  id: '/chats',
-  path: '/chats',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const CategoriesRoute = CategoriesRouteImport.update({
   id: '/categories',
   path: '/categories',
@@ -99,15 +94,20 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ChatsIndexRoute = ChatsIndexRouteImport.update({
+  id: '/chats/',
+  path: '/chats/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AstrologersIndexRoute = AstrologersIndexRouteImport.update({
   id: '/astrologers/',
   path: '/astrologers/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ChatsIdRoute = ChatsIdRouteImport.update({
-  id: '/$id',
-  path: '/$id',
-  getParentRoute: () => ChatsRoute,
+  id: '/chats/$id',
+  path: '/chats/$id',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AstrologersIdRoute = AstrologersIdRouteImport.update({
   id: '/astrologers/$id',
@@ -132,7 +132,6 @@ export interface FileRoutesByFullPath {
   '/astrologer-login': typeof AstrologerLoginRoute
   '/auth': typeof AuthRoute
   '/categories': typeof CategoriesRoute
-  '/chats': typeof ChatsRouteWithChildren
   '/details': typeof DetailsRoute
   '/live': typeof LiveRoute
   '/onboarding': typeof OnboardingRoute
@@ -144,6 +143,7 @@ export interface FileRoutesByFullPath {
   '/astrologers/$id': typeof AstrologersIdRoute
   '/chats/$id': typeof ChatsIdRoute
   '/astrologers/': typeof AstrologersIndexRoute
+  '/chats/': typeof ChatsIndexRoute
   '/api/public/cashfree-webhook': typeof ApiPublicCashfreeWebhookRoute
   '/call/$mode/$id': typeof CallModeIdRoute
 }
@@ -153,7 +153,6 @@ export interface FileRoutesByTo {
   '/astrologer-login': typeof AstrologerLoginRoute
   '/auth': typeof AuthRoute
   '/categories': typeof CategoriesRoute
-  '/chats': typeof ChatsRouteWithChildren
   '/details': typeof DetailsRoute
   '/live': typeof LiveRoute
   '/onboarding': typeof OnboardingRoute
@@ -165,6 +164,7 @@ export interface FileRoutesByTo {
   '/astrologers/$id': typeof AstrologersIdRoute
   '/chats/$id': typeof ChatsIdRoute
   '/astrologers': typeof AstrologersIndexRoute
+  '/chats': typeof ChatsIndexRoute
   '/api/public/cashfree-webhook': typeof ApiPublicCashfreeWebhookRoute
   '/call/$mode/$id': typeof CallModeIdRoute
 }
@@ -175,7 +175,6 @@ export interface FileRoutesById {
   '/astrologer-login': typeof AstrologerLoginRoute
   '/auth': typeof AuthRoute
   '/categories': typeof CategoriesRoute
-  '/chats': typeof ChatsRouteWithChildren
   '/details': typeof DetailsRoute
   '/live': typeof LiveRoute
   '/onboarding': typeof OnboardingRoute
@@ -187,6 +186,7 @@ export interface FileRoutesById {
   '/astrologers/$id': typeof AstrologersIdRoute
   '/chats/$id': typeof ChatsIdRoute
   '/astrologers/': typeof AstrologersIndexRoute
+  '/chats/': typeof ChatsIndexRoute
   '/api/public/cashfree-webhook': typeof ApiPublicCashfreeWebhookRoute
   '/call/$mode/$id': typeof CallModeIdRoute
 }
@@ -198,7 +198,6 @@ export interface FileRouteTypes {
     | '/astrologer-login'
     | '/auth'
     | '/categories'
-    | '/chats'
     | '/details'
     | '/live'
     | '/onboarding'
@@ -210,6 +209,7 @@ export interface FileRouteTypes {
     | '/astrologers/$id'
     | '/chats/$id'
     | '/astrologers/'
+    | '/chats/'
     | '/api/public/cashfree-webhook'
     | '/call/$mode/$id'
   fileRoutesByTo: FileRoutesByTo
@@ -219,7 +219,6 @@ export interface FileRouteTypes {
     | '/astrologer-login'
     | '/auth'
     | '/categories'
-    | '/chats'
     | '/details'
     | '/live'
     | '/onboarding'
@@ -231,6 +230,7 @@ export interface FileRouteTypes {
     | '/astrologers/$id'
     | '/chats/$id'
     | '/astrologers'
+    | '/chats'
     | '/api/public/cashfree-webhook'
     | '/call/$mode/$id'
   id:
@@ -240,7 +240,6 @@ export interface FileRouteTypes {
     | '/astrologer-login'
     | '/auth'
     | '/categories'
-    | '/chats'
     | '/details'
     | '/live'
     | '/onboarding'
@@ -252,6 +251,7 @@ export interface FileRouteTypes {
     | '/astrologers/$id'
     | '/chats/$id'
     | '/astrologers/'
+    | '/chats/'
     | '/api/public/cashfree-webhook'
     | '/call/$mode/$id'
   fileRoutesById: FileRoutesById
@@ -262,7 +262,6 @@ export interface RootRouteChildren {
   AstrologerLoginRoute: typeof AstrologerLoginRoute
   AuthRoute: typeof AuthRoute
   CategoriesRoute: typeof CategoriesRoute
-  ChatsRoute: typeof ChatsRouteWithChildren
   DetailsRoute: typeof DetailsRoute
   LiveRoute: typeof LiveRoute
   OnboardingRoute: typeof OnboardingRoute
@@ -272,7 +271,9 @@ export interface RootRouteChildren {
   StoreRoute: typeof StoreRoute
   WalletRoute: typeof WalletRoute
   AstrologersIdRoute: typeof AstrologersIdRoute
+  ChatsIdRoute: typeof ChatsIdRoute
   AstrologersIndexRoute: typeof AstrologersIndexRoute
+  ChatsIndexRoute: typeof ChatsIndexRoute
   ApiPublicCashfreeWebhookRoute: typeof ApiPublicCashfreeWebhookRoute
   CallModeIdRoute: typeof CallModeIdRoute
 }
@@ -335,13 +336,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DetailsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/chats': {
-      id: '/chats'
-      path: '/chats'
-      fullPath: '/chats'
-      preLoaderRoute: typeof ChatsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/categories': {
       id: '/categories'
       path: '/categories'
@@ -377,6 +371,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/chats/': {
+      id: '/chats/'
+      path: '/chats'
+      fullPath: '/chats/'
+      preLoaderRoute: typeof ChatsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/astrologers/': {
       id: '/astrologers/'
       path: '/astrologers'
@@ -386,10 +387,10 @@ declare module '@tanstack/react-router' {
     }
     '/chats/$id': {
       id: '/chats/$id'
-      path: '/$id'
+      path: '/chats/$id'
       fullPath: '/chats/$id'
       preLoaderRoute: typeof ChatsIdRouteImport
-      parentRoute: typeof ChatsRoute
+      parentRoute: typeof rootRouteImport
     }
     '/astrologers/$id': {
       id: '/astrologers/$id'
@@ -415,23 +416,12 @@ declare module '@tanstack/react-router' {
   }
 }
 
-interface ChatsRouteChildren {
-  ChatsIdRoute: typeof ChatsIdRoute
-}
-
-const ChatsRouteChildren: ChatsRouteChildren = {
-  ChatsIdRoute: ChatsIdRoute,
-}
-
-const ChatsRouteWithChildren = ChatsRoute._addFileChildren(ChatsRouteChildren)
-
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AstrologerRoute: AstrologerRoute,
   AstrologerLoginRoute: AstrologerLoginRoute,
   AuthRoute: AuthRoute,
   CategoriesRoute: CategoriesRoute,
-  ChatsRoute: ChatsRouteWithChildren,
   DetailsRoute: DetailsRoute,
   LiveRoute: LiveRoute,
   OnboardingRoute: OnboardingRoute,
@@ -441,7 +431,9 @@ const rootRouteChildren: RootRouteChildren = {
   StoreRoute: StoreRoute,
   WalletRoute: WalletRoute,
   AstrologersIdRoute: AstrologersIdRoute,
+  ChatsIdRoute: ChatsIdRoute,
   AstrologersIndexRoute: AstrologersIndexRoute,
+  ChatsIndexRoute: ChatsIndexRoute,
   ApiPublicCashfreeWebhookRoute: ApiPublicCashfreeWebhookRoute,
   CallModeIdRoute: CallModeIdRoute,
 }

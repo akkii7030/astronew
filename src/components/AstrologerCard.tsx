@@ -3,8 +3,7 @@ import { Star, MessageCircle, Phone, Video, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import type { Astrologer } from "@/lib/queries";
-import { ensureFirebaseUser } from "@/integrations/firebase/client";
-import { ensureChatRoom } from "@/lib/firebase-chat";
+import { openAstrologerChat, startAstrologerCall } from "@/lib/consultation-actions";
 
 function initials(name: string) {
   return name.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase();
@@ -21,13 +20,7 @@ export function AstrologerCard({ a }: { a: Astrologer }) {
     if (loading) return;
     setLoading(true);
     try {
-      const u = await ensureFirebaseUser();
-      const roomId = await ensureChatRoom({
-        userUid: u.uid,
-        userName: u.displayName || u.phoneNumber || "Guest",
-        astrologerId: a.id,
-        astrologerName: a.name,
-      });
+      const roomId = await openAstrologerChat(a);
       navigate({ to: "/chats/$id", params: { id: roomId } });
     } catch (err) {
       console.error("[chat] failed to open", err);
@@ -37,10 +30,20 @@ export function AstrologerCard({ a }: { a: Astrologer }) {
     }
   };
 
-  const goCall = (mode: "audio" | "video") => (e: React.MouseEvent) => {
+  const goCall = (mode: "audio" | "video") => async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    navigate({ to: "/call/$mode/$id", params: { mode, id: a.id } });
+    if (loading) return;
+    setLoading(true);
+    try {
+      const { id: callId } = await startAstrologerCall(a, mode);
+      navigate({ to: "/call/$mode/$id", params: { mode, id: a.id }, search: { callId } });
+    } catch (err) {
+      console.error("[call] failed to start", err);
+      toast.error(err instanceof Error ? err.message : "Could not start call");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const showImg = a.avatar_url && !imgErr;
@@ -95,16 +98,18 @@ export function AstrologerCard({ a }: { a: Astrologer }) {
             <button
               type="button"
               onClick={goCall("audio")}
+              disabled={loading}
               aria-label={`Audio call ${a.name}`}
-              className="grid h-7 w-7 place-items-center rounded-full border border-border text-muted-foreground transition hover:border-[var(--gold)] hover:text-[var(--gold)]"
+              className="grid h-7 w-7 place-items-center rounded-full border border-border text-muted-foreground transition hover:border-[var(--gold)] hover:text-[var(--gold)] disabled:opacity-60"
             >
               <Phone className="h-3.5 w-3.5" />
             </button>
             <button
               type="button"
               onClick={goCall("video")}
+              disabled={loading}
               aria-label={`Video call ${a.name}`}
-              className="grid h-7 w-7 place-items-center rounded-full gold-bg"
+              className="grid h-7 w-7 place-items-center rounded-full gold-bg disabled:opacity-60"
             >
               <Video className="h-3.5 w-3.5" />
             </button>

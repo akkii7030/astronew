@@ -5,9 +5,8 @@ import { toast } from "sonner";
 import {
   Star, MessageCircle, Phone, Video, ArrowLeft, Share2, Plus, Check,
 } from "lucide-react";
-import { ensureFirebaseUser } from "@/integrations/firebase/client";
-import { ensureChatRoom, astroUid } from "@/lib/firebase-chat";
-import { createCall, type CallMode } from "@/lib/firebase-calls";
+import { type CallMode } from "@/lib/firebase-calls";
+import { openAstrologerChat, startAstrologerCall } from "@/lib/consultation-actions";
 import { MobileShell } from "@/components/MobileShell";
 import { astrologerQuery, astrologerReviewsQuery } from "@/lib/queries";
 import { requireAuth } from "@/lib/auth-guard";
@@ -45,6 +44,7 @@ function formatCount(n: number) {
 }
 
 function AstrologerPage() {
+  console.log("[AstrologerPage] Component mounted");
   const { id } = Route.useParams();
   const navigate = useNavigate();
   const { data: a } = useSuspenseQuery(astrologerQuery(id));
@@ -53,6 +53,7 @@ function AstrologerPage() {
   const [imgErr, setImgErr] = useState(false);
   const [following, setFollowing] = useState(false);
   const [bioOpen, setBioOpen] = useState(false);
+  console.log("[AstrologerPage] Astrologer data:", a);
   if (!a) return null;
 
   const avatar = (!imgErr && a.avatar_url) || PLACEHOLDER_AVATAR;
@@ -62,13 +63,8 @@ function AstrologerPage() {
   const openChat = async () => {
     setLoading(true);
     try {
-      const u = await ensureFirebaseUser();
-      const roomId = await ensureChatRoom({
-        userUid: u.uid,
-        userName: u.displayName || u.phoneNumber || "Guest",
-        astrologerId: a.id,
-        astrologerName: a.name,
-      });
+      const roomId = await openAstrologerChat(a);
+      console.log("[openChat] Chat room created:", roomId);
       navigate({ to: "/chats/$id", params: { id: roomId } });
     } catch (e) {
       console.error("[chat] failed to open", e);
@@ -81,23 +77,8 @@ function AstrologerPage() {
   const startCall = async (mode: CallMode) => {
     setLoading(true);
     try {
-      const u = await ensureFirebaseUser();
-      const calleeUid = a.firebase_uid ?? astroUid(a.id);
-      if (!a.firebase_uid) {
-        toast.error("This astrologer is not yet activated. Ask admin to run /seed-astrologers.");
-        setLoading(false);
-        return;
-      }
-      const { id: callId } = await createCall({
-        callerUid: u.uid,
-        callerName: u.displayName || u.phoneNumber || "Guest",
-        callerAvatar: u.photoURL ?? null,
-        calleeUid,
-        calleeName: a.name,
-        calleeAvatar: a.avatar_url ?? null,
-        astrologerId: a.id,
-        mode,
-      });
+      const { id: callId, roomId } = await startAstrologerCall(a, mode);
+      console.log("[startCall] Call created! callId:", callId, "roomId:", roomId, "| calleeUid:", a.firebase_uid);
       navigate({
         to: "/call/$mode/$id",
         params: { mode, id: a.id },

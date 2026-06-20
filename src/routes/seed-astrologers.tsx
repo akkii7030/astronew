@@ -1,10 +1,7 @@
 // Hidden one-time seeder. Visit /seed-astrologers, click the button, and it:
 //  1. Creates (or signs in to) a real Firebase Auth account per astrologer
 //  2. Writes users/{uid} doc in Firestore with role=astrologer + profile
-//  3. Stores the real firebase_uid back on the Supabase astrologers row
-//
-// Uses a SECONDARY firebase app instance so the currently-signed-in user
-// (you) is not signed out while accounts are being created.
+//  3. Writes to astrologers collection in Firestore
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { initializeApp, deleteApp } from "firebase/app";
@@ -12,9 +9,8 @@ import {
   getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword,
   updateProfile,
 } from "firebase/auth";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { getFirestore, doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { getDb } from "@/integrations/firebase/client";
-import { supabase } from "@/integrations/supabase/client";
 import { ASTROLOGER_ACCOUNTS } from "@/lib/astrologer-accounts";
 
 export const Route = createFileRoute("/seed-astrologers")({
@@ -34,6 +30,77 @@ const FIREBASE_CONFIG = {
   appId: "1:24968482924:web:4e49dc39d76fadd7d3c849",
 };
 
+const DEMO_PROFILES = [
+  {
+    name: "Acharya Shivam",
+    avatar_url: "https://images.unsplash.com/photo-1542156822-6924d1a71ace?w=600&h=600&fit=crop",
+    skills: ["Vedic Astrology", "Vastu"],
+    languages: ["English", "Hindi"],
+    is_online: true,
+    bio: "Expert in Vedic Astrology with over 15 years of experience.",
+    categories: ["Career", "Marriage"],
+    price_per_minute: 20,
+    rating: 4.8,
+    reviews_count: 120,
+    is_featured: true,
+    followers: 1500,
+    orders_completed: 300,
+    experience_years: 15,
+    gallery_urls: [],
+  },
+  {
+    name: "Astro Priya",
+    avatar_url: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=600&h=600&fit=crop",
+    skills: ["Tarot Reading", "Numerology"],
+    languages: ["English", "Hindi", "Tamil"],
+    is_online: true,
+    bio: "Renowned Tarot reader helping clients find their true path.",
+    categories: ["Love", "Relationships"],
+    price_per_minute: 25,
+    rating: 4.9,
+    reviews_count: 200,
+    is_featured: true,
+    followers: 2500,
+    orders_completed: 500,
+    experience_years: 8,
+    gallery_urls: [],
+  },
+  {
+    name: "Pandit Ramesh",
+    avatar_url: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=600&h=600&fit=crop",
+    skills: ["Prashna Kundali", "Face Reading"],
+    languages: ["Hindi", "Sanskrit"],
+    is_online: false,
+    bio: "Specializes in Prashna Kundali and face reading for accurate predictions.",
+    categories: ["Health", "Wealth"],
+    price_per_minute: 15,
+    rating: 4.5,
+    reviews_count: 85,
+    is_featured: false,
+    followers: 800,
+    orders_completed: 150,
+    experience_years: 20,
+    gallery_urls: [],
+  },
+  {
+    name: "Yogini Meera",
+    avatar_url: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=600&h=600&fit=crop",
+    skills: ["Palmistry", "Crystal Healing"],
+    languages: ["English"],
+    is_online: true,
+    bio: "Guiding souls through crystal healing and palmistry.",
+    categories: ["Spiritual", "Career"],
+    price_per_minute: 30,
+    rating: 5.0,
+    reviews_count: 350,
+    is_featured: true,
+    followers: 4000,
+    orders_completed: 800,
+    experience_years: 12,
+    gallery_urls: [],
+  }
+];
+
 function SeedPage() {
   const [running, setRunning] = useState(false);
   const [log, setLog] = useState<LogEntry[]>([]);
@@ -44,19 +111,14 @@ function SeedPage() {
     const out: LogEntry[] = [];
     const secondary = initializeApp(FIREBASE_CONFIG, "astro-seeder-" + Date.now());
     const secAuth = getAuth(secondary);
+    const secDb = getFirestore(secondary);
 
     try {
-      // Look up supabase astrologers by name once.
-      const { data: astros, error } = await supabase
-        .from("astrologers")
-        .select("id, name, avatar_url, skills, languages, is_online, bio");
-      if (error) throw error;
-
       for (const acct of ASTROLOGER_ACCOUNTS) {
         try {
-          const profile = astros?.find((a) => a.name === acct.name);
+          const profile = DEMO_PROFILES.find((a) => a.name === acct.name);
           if (!profile) {
-            out.push({ name: acct.name, status: "err", msg: "no matching supabase row" });
+            out.push({ name: acct.name, status: "err", msg: "no matching demo profile" });
             setLog([...out]);
             continue;
           }
@@ -80,7 +142,7 @@ function SeedPage() {
           }
 
           // Firestore users doc (role=astrologer).
-          await setDoc(doc(getDb(), "users", uid), {
+          await setDoc(doc(secDb, "users", uid), {
             uid,
             name: displayName,
             role: "astrologer",
@@ -90,16 +152,16 @@ function SeedPage() {
             languages: profile.languages ?? [],
             bio: profile.bio ?? null,
             online: profile.is_online ?? false,
-            astrologer_id: profile.id,
+            astrologer_id: uid,
             updatedAt: serverTimestamp(),
           }, { merge: true });
 
-          // Persist real uid on the Supabase astrologer row.
-          const { error: upErr } = await supabase
-            .from("astrologers")
-            .update({ firebase_uid: uid })
-            .eq("id", profile.id);
-          if (upErr) throw upErr;
+          // Firestore astrologers collection
+          await setDoc(doc(secDb, "astrologers", uid), {
+            id: uid,
+            ...profile,
+            firebase_uid: uid,
+          });
 
           // Sign secondary auth out so the next iteration starts clean.
           await secAuth.signOut().catch(() => undefined);
@@ -124,9 +186,9 @@ function SeedPage() {
     <div className="mx-auto max-w-md p-6">
       <h1 className="font-display text-2xl">Seed astrologer accounts</h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        One-time setup. Creates real Firebase Auth accounts for the 4 astrologers,
-        stores their profile in Firestore (<code>users</code>), and links the
-        Firebase UID back to each Supabase astrologer row.
+        One-time setup. Creates real Firebase Auth accounts for the demo astrologers,
+        stores their profile in Firestore (<code>users</code>), and seeds the
+        <code>astrologers</code> collection.
       </p>
 
       <button
@@ -163,3 +225,4 @@ function SeedPage() {
     </div>
   );
 }
+

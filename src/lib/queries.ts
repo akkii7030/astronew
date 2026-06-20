@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { getDb } from "@/integrations/firebase/client";
+import { collection, getDocs, doc, getDoc, query, where, orderBy, limit } from "firebase/firestore";
 
 export type Astrologer = {
   id: string;
@@ -35,13 +36,27 @@ export const astrologersQuery = (filter?: { category?: string; search?: string; 
   queryOptions({
     queryKey: ["astrologers", filter ?? {}],
     queryFn: async (): Promise<Astrologer[]> => {
-      let q = supabase.from("astrologers").select("*").order("is_featured", { ascending: false }).order("rating", { ascending: false });
-      if (filter?.category) q = q.contains("categories", [filter.category]);
-      if (filter?.onlineOnly) q = q.eq("is_online", true);
-      if (filter?.search) q = q.ilike("name", `%${filter.search}%`);
-      const { data, error } = await q;
-      if (error) throw error;
-      return (data ?? []) as Astrologer[];
+      const db = getDb();
+      let constraints: any[] = [];
+      if (filter?.category) constraints.push(where("categories", "array-contains", filter.category));
+      if (filter?.onlineOnly) constraints.push(where("is_online", "==", true));
+      
+      const q = query(collection(db, "astrologers"), ...constraints);
+      const snap = await getDocs(q);
+      let results = snap.docs.map(d => ({ id: d.id, ...d.data() } as Astrologer));
+
+      if (filter?.search) {
+        const term = filter.search.toLowerCase();
+        results = results.filter(a => a.name.toLowerCase().includes(term));
+      }
+
+      results.sort((a, b) => {
+        if (a.is_featured && !b.is_featured) return -1;
+        if (!a.is_featured && b.is_featured) return 1;
+        return b.rating - a.rating;
+      });
+
+      return results;
     },
   });
 
@@ -49,9 +64,10 @@ export const astrologerQuery = (id: string) =>
   queryOptions({
     queryKey: ["astrologer", id],
     queryFn: async (): Promise<Astrologer | null> => {
-      const { data, error } = await supabase.from("astrologers").select("*").eq("id", id).maybeSingle();
-      if (error) throw error;
-      return data as Astrologer | null;
+      const db = getDb();
+      const snap = await getDoc(doc(db, "astrologers", id));
+      if (!snap.exists()) return null;
+      return { id: snap.id, ...snap.data() } as Astrologer;
     },
   });
 
@@ -59,13 +75,14 @@ export const astrologerReviewsQuery = (id: string) =>
   queryOptions({
     queryKey: ["astrologer-reviews", id],
     queryFn: async (): Promise<AstrologerReview[]> => {
-      const { data, error } = await supabase
-        .from("astrologer_reviews")
-        .select("*")
-        .eq("astrologer_id", id)
-        .order("created_at", { ascending: false })
-        .limit(20);
-      if (error) throw error;
-      return (data ?? []) as AstrologerReview[];
+      const db = getDb();
+      const q = query(
+        collection(db, "astrologer_reviews"),
+        where("astrologer_id", "==", id),
+        orderBy("created_at", "desc"),
+        limit(20)
+      );
+      const snap = await getDocs(q);
+      return snap.docs.map(d => ({ id: d.id, ...d.data() } as AstrologerReview));
     },
   });

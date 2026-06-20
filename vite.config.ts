@@ -15,6 +15,9 @@ export default defineConfig({
     serverFns: {
       disableCsrfMiddlewareWarning: true,
     },
+    nitro: {
+      preset: "node-server",
+    },
   },
   vite: {
     plugins: [

@@ -24,8 +24,16 @@ export function IncomingCallModal() {
 
     const off = auth.onAuthStateChanged((u) => {
       if (unsub) { unsub(); unsub = null; }
-      if (!u) return;
+      if (!u) {
+        console.log("[IncomingCallModal] No Firebase user signed in.");
+        return;
+      }
+      console.log("[IncomingCallModal] Listening for calls to UID:", u.uid, "isAnon:", u.isAnonymous, "email:", u.email);
       unsub = listenIncomingCalls(u.uid, (calls) => {
+        console.log("[IncomingCallModal] Incoming calls snapshot:", calls.length, calls);
+        if (calls.length > 0) {
+          console.log("[IncomingCallModal] First call details:", calls[0]);
+        }
         setCall(calls[0] ?? null);
       });
     });
