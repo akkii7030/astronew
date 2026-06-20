@@ -332,8 +332,8 @@ function CallPage() {
         <span className="w-12" />
       </div>
 
-      {/* Hero (audio always; video while not yet connected) */}
-      {(!isVideo || status !== "connected") && (
+      {/* Hero (audio while not connected; video while not yet connected) */}
+      {((!isVideo && status !== "connected") || (isVideo && status !== "connected")) && (
         <div className="relative z-10 flex h-full flex-col items-center justify-center px-6 text-center">
           <div className="relative">
             {(status === "connecting" || isRinging) && (
