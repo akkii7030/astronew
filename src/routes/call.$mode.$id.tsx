@@ -144,6 +144,8 @@ function CallPage() {
           showUserList: false,
           showLayoutButton: false,
           showLeaveRoomConfirmDialog: false,
+          showNonVideoUserAvatar: false,
+          showAvatarInAudioMode: false,
           maxUsers: 2,
           layout: "Auto",
           onJoinRoom: () => {
@@ -261,13 +263,22 @@ function CallPage() {
   const isAstrologerSide = !!(callDoc && myUid && callDoc.astrologerId === myUid);
   // If I am the caller, the peer is the callee. If I am the callee, the peer is the caller.
   const isCallee = !!(callDoc && myUid && callDoc.calleeUid === myUid);
-  const peerName = callDoc
-    ? (isCallee ? callDoc.callerName : callDoc.calleeName)
-    : astrologer?.name;
-  const peerAvatar = (callDoc
-    ? (isCallee ? callDoc.callerAvatar : callDoc.calleeAvatar)
-    : astrologer?.avatar_url) || PLACEHOLDER;
-  const avatar = peerAvatar;
+  
+  // Determine peer name - prioritize showing the other person's name
+  let peerName: string | undefined;
+  let peerAvatar: string | undefined;
+  
+  if (callDoc) {
+    // When callDoc exists, show the other person's info
+    peerName = isCallee ? callDoc.callerName : callDoc.calleeName;
+    peerAvatar = (isCallee ? callDoc.callerAvatar : callDoc.calleeAvatar) || undefined;
+  } else {
+    // Before callDoc loads, show astrologer info for user side, or placeholder for astrologer side
+    peerName = isAstrologerSide ? "User" : astrologer?.name;
+    peerAvatar = isAstrologerSide ? PLACEHOLDER : (astrologer?.avatar_url ?? undefined);
+  }
+  
+  const avatar = peerAvatar || PLACEHOLDER;
   const skills = !isAstrologerSide ? astrologer?.skills?.slice(0, 3).join(" · ") : undefined;
   const isVideo = mode === "video";
   const isRinging = callId && callDoc?.status === "ringing";

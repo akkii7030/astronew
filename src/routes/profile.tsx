@@ -37,6 +37,7 @@ function ProfilePage() {
   const [dob, setDob] = useState("");
   const [gender, setGender] = useState("");
   const [phone, setPhone] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState("");
   const [otp, setOtp] = useState("");
   const [otpSent, setOtpSent] = useState(false);
   const [verifying, setVerifying] = useState(false);
@@ -58,6 +59,7 @@ function ProfilePage() {
         setDob(data.date_of_birth ?? "");
         setGender(data.gender ?? "");
         setPhone(data.phone ?? "");
+        setAvatarUrl(data.avatar_url ?? "");
       }
     });
   }, [user]);
@@ -73,8 +75,11 @@ function ProfilePage() {
         name: name || null,
         date_of_birth: dob || null,
         gender: gender || null,
+        avatar_url: avatarUrl || null,
       }, { merge: true });
       toast.success("Profile saved");
+      // Update local profile state
+      setProfile((prev) => prev ? { ...prev, avatar_url: avatarUrl || null } : null);
     } catch (e) {
       console.error(e);
       toast.error("Failed to save profile. Please try again.");
@@ -149,6 +154,18 @@ function ProfilePage() {
 
         <section className="card-luxe space-y-3 p-5">
           <h2 className="font-display text-lg">Personal details</h2>
+          <div className="flex items-center justify-center">
+            <div className="relative">
+              <div className="grid h-20 w-20 place-items-center overflow-hidden rounded-full border-2 border-[var(--gold)]/30 bg-card">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="Avatar" className="h-full w-full object-cover" />
+                ) : (
+                  <span className="font-display text-lg">{initials(profile?.name, user.email)}</span>
+                )}
+              </div>
+            </div>
+          </div>
+          <Field icon={<User className="h-4 w-4" />} placeholder="Avatar URL" value={avatarUrl} onChange={setAvatarUrl} />
           <Field icon={<User className="h-4 w-4" />} placeholder="Full name" value={name} onChange={setName} />
           <Field icon={<Mail className="h-4 w-4" />} placeholder="Email" value={user.email ?? ""} onChange={() => {}} disabled />
           <Field icon={<Cake className="h-4 w-4" />} type="date" placeholder="Date of birth" value={dob} onChange={setDob} />

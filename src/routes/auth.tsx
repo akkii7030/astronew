@@ -69,14 +69,33 @@ function AuthPage() {
     
     // Don't overwrite role if it already exists (preserves astrologer role)
     const role = existingData?.role || "user";
-    await setDoc(userRef, {
-      name: user.displayName || user.phoneNumber || "User",
-      avatar_url: user.photoURL || null,
-      email: user.email || null,
-      role,
-    }, { merge: true });
     
-    return role;
+    // Only set basic info if user doesn't exist, preserve existing data
+    const updateData: any = {
+      role,
+    };
+    
+    // Only set name if not already set
+    if (!existingData?.name) {
+      updateData.name = user.displayName || user.phoneNumber || "User";
+    }
+    
+    // Only set avatar_url if not already set
+    if (!existingData?.avatar_url && user.photoURL) {
+      updateData.avatar_url = user.photoURL;
+    }
+    
+    // Only set email if not already set
+    if (!existingData?.email && user.email) {
+      updateData.email = user.email;
+    }
+    
+    await setDoc(userRef, updateData, { merge: true });
+    
+    // Check if profile is incomplete (missing DOB, gender, or avatar)
+    const isIncomplete = !existingData?.date_of_birth || !existingData?.gender || !existingData?.avatar_url;
+    
+    return { role, isIncomplete };
   }
 
   async function handleGoogle() {
@@ -104,10 +123,13 @@ function AuthPage() {
         user = res.user;
       }
 
-      const role = await syncProfile(user);
+      const { role, isIncomplete } = await syncProfile(user);
       // Redirect astrologers to their dashboard, others to home or redirect
       if (role === "astrologer") {
         navigate({ to: "/astrologer" });
+      } else if (isIncomplete) {
+        // Redirect to profile completion if missing DOB, gender, or avatar
+        navigate({ to: "/profile" });
       } else {
         navigate({ to: (search.redirect as "/") ?? "/" });
       }
@@ -180,10 +202,13 @@ function AuthPage() {
         user = res.user;
       }
 
-      const role = await syncProfile(user);
+      const { role, isIncomplete } = await syncProfile(user);
       // Redirect astrologers to their dashboard, others to home or redirect
       if (role === "astrologer") {
         navigate({ to: "/astrologer" });
+      } else if (isIncomplete) {
+        // Redirect to profile completion if missing DOB, gender, or avatar
+        navigate({ to: "/profile" });
       } else {
         navigate({ to: (search.redirect as "/") ?? "/" });
       }

@@ -60,13 +60,19 @@ export async function startAstrologerCall(astrologer: ConsultationAstrologer, mo
 // Allows an astrologer to initiate a call back to a user
 export async function startCallToUser(userUid: string, userName: string, mode: CallMode) {
   const { user: astrologer, name: astrologerName, avatar: astrologerAvatar } = await getSignedInUserProfile();
+  
+  // Fetch the user's avatar from the database
+  const userSnap = await getDoc(doc(getDb(), "users", userUid));
+  const userData = userSnap.data();
+  const userAvatar = userData?.avatar_url || null;
+  
   return createCall({
     callerUid: astrologer.uid,
     callerName: astrologerName,
     callerAvatar: astrologerAvatar,
     calleeUid: userUid,
     calleeName: userName,
-    calleeAvatar: null,
+    calleeAvatar: userAvatar,
     astrologerId: astrologer.uid,
     mode,
   });
