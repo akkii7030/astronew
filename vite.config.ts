@@ -40,6 +40,7 @@ export default defineConfig({
       // Use node-server preset for Nitro
       nitro: {
         preset: "node-server",
+        moduleSideEffects: [],
       },
     }),
     react(),
@@ -113,14 +114,18 @@ export default defineConfig({
   },
   // Prevent Vite from touching server-only packages during dev pre-bundling
   optimizeDeps: {
-    exclude: SERVER_ONLY_PACKAGES,
+    exclude: [...SERVER_ONLY_PACKAGES, "@zegocloud/zego-uikit-prebuilt"],
     include: ["firebase/app", "firebase/auth", "firebase/firestore"],
   },
   // Externalize from the SSR build
-  ssr: {
-    external: SERVER_ONLY_PACKAGES,
-    noExternal: [/^(?!firebase-admin).*/], // bundle everything except server-only
-  },
+ ssr: {
+  external: [
+    ...SERVER_ONLY_PACKAGES,
+    "@zegocloud/zego-uikit-prebuilt",
+    "@cashfreepayments/cashfree-js",
+  ],
+  noExternal: ["firebase"],
+},
   build: {
     // Raise warning limit for the Zego SDK which is unavoidably large
     chunkSizeWarningLimit: 6000,

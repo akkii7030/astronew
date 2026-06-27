@@ -4,7 +4,6 @@ import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Plus, ArrowDownLeft, ArrowUpRight, Wallet as WalletIcon } from "lucide-react";
-import { load } from "@cashfreepayments/cashfree-js";
 import { MobileShell } from "@/components/MobileShell";
 import { useSession } from "@/hooks/use-session";
 import { createRechargeOrder, confirmRechargeOrder, getWalletOverview } from "@/lib/cashfree.functions";
@@ -61,23 +60,25 @@ function WalletPage() {
       .catch((e) => { console.error(e); toast.error("Could not verify payment"); });
   }, [user, confirmOrder, qc]);
 
-  async function recharge() {
-    if (!user) return;
-    if (amount < 10) { toast.error("Minimum recharge is ₹10"); return; }
-    setPaying(true);
-    try {
-      const { payment_session_id } = await createOrder({
-        data: { amount_inr: amount, return_url: window.location.origin + "/wallet" },
-      });
-      const cashfree = await load({ mode: "production" });
-      await cashfree.checkout({ paymentSessionId: payment_session_id, redirectTarget: "_self" });
-    } catch (e) {
-      console.error(e);
-      toast.error(e instanceof Error ? e.message : "Could not start payment");
-    } finally {
-      setPaying(false);
-    }
+ async function recharge() {
+  if (!user) return;
+  if (amount < 10) { toast.error("Minimum recharge is ₹10"); return; }
+  setPaying(true);
+  try {
+    const { payment_session_id } = await createOrder({
+      data: { amount_inr: amount, return_url: window.location.origin + "/wallet" },
+    });
+    // Lazy import — browser only, SSR pe execute nahi hoga
+    const { load } = await import("@cashfreepayments/cashfree-js");
+    const cashfree = await load({ mode: "production" });
+    await cashfree.checkout({ paymentSessionId: payment_session_id, redirectTarget: "_self" });
+  } catch (e) {
+    console.error(e);
+    toast.error(e instanceof Error ? e.message : "Could not start payment");
+  } finally {
+    setPaying(false);
   }
+}
 
   if (sessionLoading || !user) {
     return <MobileShell><div className="p-10 text-center text-sm text-muted-foreground">Loading…</div></MobileShell>;
