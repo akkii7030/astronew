@@ -137,15 +137,35 @@ export default defineConfig({
         ),
       output: {
         // Split heavy deps into separate chunks to reduce per-chunk memory during build
-        manualChunks: {
-          "vendor-react": ["react", "react-dom"],
-          "vendor-firebase": ["firebase/app", "firebase/auth", "firebase/firestore"],
-          "vendor-zego": ["@zegocloud/zego-uikit-prebuilt"],
-          "vendor-tanstack": [
-            "@tanstack/react-router",
-            "@tanstack/react-query",
-          ],
-          "vendor-framer": ["framer-motion"],
+        manualChunks(id, { getModuleInfo }) {
+          const info = getModuleInfo(id);
+          if (!info || info.isExternal) {
+            return;
+          }
+          if (id.includes("node_modules")) {
+            if (id.includes("react") || id.includes("react-dom")) {
+              return "vendor-react";
+            }
+            if (
+              id.includes("firebase/app") ||
+              id.includes("firebase/auth") ||
+              id.includes("firebase/firestore")
+            ) {
+              return "vendor-firebase";
+            }
+            if (id.includes("@zegocloud/zego-uikit-prebuilt")) {
+              return "vendor-zego";
+            }
+            if (
+              id.includes("@tanstack/react-router") ||
+              id.includes("@tanstack/react-query")
+            ) {
+              return "vendor-tanstack";
+            }
+            if (id.includes("framer-motion")) {
+              return "vendor-framer";
+            }
+          }
         },
       },
     },
