@@ -39,7 +39,6 @@ export default defineConfig({
       },
       // Use node-server preset for Nitro
       nitro: {
-        preset: process.env.VERCEL ? "vercel" : "node-server",
         moduleSideEffects: [],
       },
     }),
