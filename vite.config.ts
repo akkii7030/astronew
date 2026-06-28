@@ -37,8 +37,8 @@ export default defineConfig({
       serverFns: {
         disableCsrfMiddlewareWarning: true,
       },
-      // Use node-server preset for Nitro
       nitro: {
+        preset: "node-server",
         moduleSideEffects: [],
       },
     }),
