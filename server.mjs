@@ -55,12 +55,11 @@ const MIME_TYPES = {
   ".html": "text/html",
 };
 
-// Try multiple possible static asset roots
+// TanStack Start (Vinxi) outputs client assets to dist/client/
 const STATIC_ROOTS = [
+  path.join(__dirname, "dist", "client"),
   path.join(__dirname, "dist", "public"),
   path.join(__dirname, "dist"),
-  path.join(process.cwd(), "dist", "public"),
-  path.join(process.cwd(), "dist"),
 ];
 
 function tryServeStatic(req, res) {
