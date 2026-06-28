@@ -29,8 +29,8 @@ const rechargeSchema = z.object({
 export const createRechargeOrder = createServerFn({ method: "POST" })
   .inputValidator((input) => rechargeSchema.parse(input))
   .handler(async ({ data }) => {
-    const appId = process.env.CASHFREE_APP_ID;
-    const secret = process.env.CASHFREE_SECRET_KEY;
+    const appId = process.env.CASHFREE_APP_ID ?? "";
+    const secret = process.env.CASHFREE_SECRET_KEY ?? "";
     if (!appId || !secret) throw new Error("Payments are not configured");
 
     const db = await getFirebaseAdmin();
@@ -72,8 +72,8 @@ export const confirmRechargeOrder = createServerFn({ method: "POST" })
     userId: z.string().min(1),
   }).parse(input))
   .handler(async ({ data }) => {
-    const appId = process.env.CASHFREE_APP_ID;
-    const secret = process.env.CASHFREE_SECRET_KEY;
+    const appId = process.env.CASHFREE_APP_ID ?? "";
+    const secret = process.env.CASHFREE_SECRET_KEY ?? "";
     if (!appId || !secret) throw new Error("Payments are not configured");
 
     const db = await getFirebaseAdmin();
