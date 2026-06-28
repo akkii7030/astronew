@@ -1,10 +1,13 @@
 import { createServer } from "node:http";
+import { createReadStream } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import fs from "node:fs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const HOST = process.env.HOST || "0.0.0.0";
+const publicDir = path.join(__dirname, "dist", "public");
 
 process.on("uncaughtException", (err) => {
   console.error("[startup] Uncaught exception:", err);
@@ -16,6 +19,51 @@ process.on("unhandledRejection", (reason) => {
 });
 
 console.log(`[startup] PORT=${PORT} HOST=${HOST}`);
+console.log(`[startup] publicDir=${publicDir}`);
+
+const MIME_TYPES = {
+  ".css": "text/css",
+  ".js": "application/javascript",
+  ".mjs": "application/javascript",
+  ".json": "application/json",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".svg": "image/svg+xml",
+  ".ico": "image/x-icon",
+  ".webp": "image/webp",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".otf": "font/otf",
+  ".txt": "text/plain",
+  ".html": "text/html",
+};
+
+function tryServeStatic(req, res) {
+  try {
+    const urlPath = new URL(req.url, `http://localhost`).pathname;
+    const filePath = path.join(publicDir, urlPath);
+
+    // Prevent path traversal
+    if (!filePath.startsWith(publicDir)) return false;
+
+    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+      const ext = path.extname(filePath).toLowerCase();
+      const contentType = MIME_TYPES[ext] || "application/octet-stream";
+      res.setHeader("Content-Type", contentType);
+      if (urlPath.startsWith("/assets/")) {
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      }
+      createReadStream(filePath).pipe(res);
+      return true;
+    }
+  } catch {
+    // ignore, fall through to SSR handler
+  }
+  return false;
+}
 
 const serverModule = await import("./dist/server/server.js");
 const exportKeys = Object.keys(serverModule);
@@ -29,12 +77,16 @@ if (!handler) {
 }
 
 console.log("[startup] Handler type:", typeof handler);
-console.log("[startup] Handler keys:", Object.keys(handler).join(", "));
 
-// Try H3's toNodeListener (TanStack Start uses H3 internally)
 try {
   const { toNodeListener } = await import("h3");
-  const server = createServer(toNodeListener(handler));
+  const h3Listener = toNodeListener(handler);
+
+  const server = createServer((req, res) => {
+    if (tryServeStatic(req, res)) return;
+    h3Listener(req, res);
+  });
+
   server.on("error", (err) => console.error("[startup] Server error:", err));
   server.listen(PORT, HOST, () => {
     console.log(`[startup] Server listening on ${HOST}:${PORT}`);
@@ -42,15 +94,13 @@ try {
 } catch (h3Err) {
   console.error("[startup] H3 approach failed:", h3Err.message);
 
-  // Fallback: try handler directly as node listener
-  try {
-    const server = createServer(handler);
-    server.on("error", (err) => console.error("[startup] Server error:", err));
-    server.listen(PORT, HOST, () => {
-      console.log(`[startup] Server listening (direct) on ${HOST}:${PORT}`);
-    });
-  } catch (err) {
-    console.error("[startup] All approaches failed:", err);
-    process.exit(1);
-  }
+  const server = createServer((req, res) => {
+    if (tryServeStatic(req, res)) return;
+    handler(req, res);
+  });
+
+  server.on("error", (err) => console.error("[startup] Server error:", err));
+  server.listen(PORT, HOST, () => {
+    console.log(`[startup] Server listening (direct) on ${HOST}:${PORT}`);
+  });
 }
