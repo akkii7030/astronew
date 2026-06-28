@@ -7,7 +7,6 @@ import fs from "node:fs";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const HOST = process.env.HOST || "0.0.0.0";
-const publicDir = path.join(__dirname, "dist", "public");
 
 process.on("uncaughtException", (err) => {
   console.error("[startup] Uncaught exception:", err);
@@ -19,7 +18,22 @@ process.on("unhandledRejection", (reason) => {
 });
 
 console.log(`[startup] PORT=${PORT} HOST=${HOST}`);
-console.log(`[startup] publicDir=${publicDir}`);
+console.log(`[startup] __dirname=${__dirname}`);
+console.log(`[startup] cwd=${process.cwd()}`);
+
+// Log dist structure to debug asset paths
+function logDir(dir, prefix = "") {
+  try {
+    if (!fs.existsSync(dir)) { console.log(`[startup] ${prefix} MISSING: ${dir}`); return; }
+    const entries = fs.readdirSync(dir).slice(0, 20);
+    console.log(`[startup] ${prefix} ${dir}: [${entries.join(", ")}]`);
+  } catch (e) { console.log(`[startup] ${prefix} ERROR reading ${dir}: ${e.message}`); }
+}
+
+logDir(path.join(__dirname, "dist"));
+logDir(path.join(__dirname, "dist", "public"));
+logDir(path.join(__dirname, "dist", "public", "assets"));
+logDir(path.join(__dirname, "dist", "assets"));
 
 const MIME_TYPES = {
   ".css": "text/css",
@@ -41,26 +55,33 @@ const MIME_TYPES = {
   ".html": "text/html",
 };
 
+// Try multiple possible static asset roots
+const STATIC_ROOTS = [
+  path.join(__dirname, "dist", "public"),
+  path.join(__dirname, "dist"),
+  path.join(process.cwd(), "dist", "public"),
+  path.join(process.cwd(), "dist"),
+];
+
 function tryServeStatic(req, res) {
   try {
     const urlPath = new URL(req.url, `http://localhost`).pathname;
-    const filePath = path.join(publicDir, urlPath);
-
-    // Prevent path traversal
-    if (!filePath.startsWith(publicDir)) return false;
-
-    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-      const ext = path.extname(filePath).toLowerCase();
-      const contentType = MIME_TYPES[ext] || "application/octet-stream";
-      res.setHeader("Content-Type", contentType);
-      if (urlPath.startsWith("/assets/")) {
-        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+    for (const root of STATIC_ROOTS) {
+      const filePath = path.join(root, urlPath);
+      if (!filePath.startsWith(root)) continue;
+      if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+        const ext = path.extname(filePath).toLowerCase();
+        const contentType = MIME_TYPES[ext] || "application/octet-stream";
+        res.setHeader("Content-Type", contentType);
+        if (urlPath.startsWith("/assets/")) {
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        }
+        createReadStream(filePath).pipe(res);
+        return true;
       }
-      createReadStream(filePath).pipe(res);
-      return true;
     }
   } catch {
-    // ignore, fall through to SSR handler
+    // fall through to SSR
   }
   return false;
 }
@@ -72,7 +93,7 @@ console.log("[startup] Module exports:", exportKeys.join(", "));
 const handler = serverModule.default ?? serverModule.app ?? serverModule.handler;
 
 if (!handler) {
-  console.error("[startup] No handler found in module exports:", exportKeys);
+  console.error("[startup] No handler found:", exportKeys);
   process.exit(1);
 }
 
@@ -92,7 +113,7 @@ try {
     console.log(`[startup] Server listening on ${HOST}:${PORT}`);
   });
 } catch (h3Err) {
-  console.error("[startup] H3 approach failed:", h3Err.message);
+  console.error("[startup] H3 failed:", h3Err.message);
 
   const server = createServer((req, res) => {
     if (tryServeStatic(req, res)) return;
