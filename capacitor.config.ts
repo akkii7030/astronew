@@ -6,7 +6,7 @@ const config: CapacitorConfig = {
   webDir: 'capacitor-dist',
   server: {
     // Replace this with your actual Vercel hosting URL once deployed
-    url: 'https://astronew-five.vercel.app',
+    url: 'https://astro.flownware.com',
     cleartext: true
   }
 };
